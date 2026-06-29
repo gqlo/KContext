@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gqlo/kcontext"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestSaveAndList(t *testing.T) {
@@ -191,5 +193,30 @@ func TestNewStoredFromAlert(t *testing.T) {
 	}
 	if stored.ReceivedAt.IsZero() {
 		t.Error("ReceivedAt should be set")
+	}
+}
+
+func TestList_legacyReceivedAtFormat(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ctx := context.Background()
+	legacy := `{"id":"legacy-1","received_at":"2026-06-29T10:00:00","source":"webhook","status":"firing","labels":{},"annotations":{}}`
+	if err := rdb.LPush(ctx, "kcontext:alerts", legacy).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	s := kcontext.NewAlertStoreWithRedis(rdb, 500)
+	alerts, err := s.List(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("List len = %d, want 1", len(alerts))
+	}
+	want := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	if !alerts[0].ReceivedAt.Equal(want) {
+		t.Fatalf("ReceivedAt = %v, want %v", alerts[0].ReceivedAt, want)
 	}
 }

@@ -16,6 +16,7 @@ import (
 var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap{
 	"fmtRelative": FormatRelativeTime,
 	"fmtTime":     FormatAlertTime,
+	"fmtISO":      FormatTimeISO,
 }).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -303,7 +304,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       <tbody>
         {{range .Alerts}}
         <tr class="{{.RowClass}}">
-          <td><time title="{{fmtTime .ReceivedAt}}">{{fmtRelative .ReceivedAt}}</time></td>
+          <td><time class="relative-time" datetime="{{fmtISO .ReceivedAt}}" title="{{fmtTime .ReceivedAt}}">{{fmtRelative .ReceivedAt}}</time></td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
           <td>
             <a class="alert-link" href="{{$.AlertDetailLink .ID}}"><strong>{{index .Labels "alertname"}}</strong></a>
@@ -429,6 +430,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         });
       }
     })();
+` + RelativeTimeRefreshJS + `
   </script>
 </body>
 </html>`))

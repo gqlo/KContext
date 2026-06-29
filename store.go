@@ -44,6 +44,24 @@ type StoredAlert struct {
 	UpdatedAt    time.Time         `json:"updatedAt,omitempty"`
 }
 
+func (a *StoredAlert) UnmarshalJSON(data []byte) error {
+	type alias StoredAlert
+	aux := struct {
+		alias
+		ReceivedAt json.RawMessage `json:"received_at"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*a = StoredAlert(aux.alias)
+	if t := ParseFlexibleTime(aux.ReceivedAt); !t.IsZero() {
+		a.ReceivedAt = t
+	} else if !a.ReceivedAt.IsZero() {
+		a.ReceivedAt = a.ReceivedAt.UTC()
+	}
+	return nil
+}
+
 func (a StoredAlert) RunbookURL() string {
 	for _, key := range []string{"runbook_url", "runbook"} {
 		u := strings.TrimSpace(a.Annotations[key])
@@ -263,11 +281,12 @@ func (s *AlertStore) List(ctx context.Context, limit int64) ([]StoredAlert, erro
 
 	alerts := make([]StoredAlert, 0, len(raw))
 	for _, item := range raw {
+		itemBytes := []byte(item)
 		var a StoredAlert
-		if err := json.Unmarshal([]byte(item), &a); err != nil {
+		if err := json.Unmarshal(itemBytes, &a); err != nil {
 			continue
 		}
-		alerts = append(alerts, a)
+		alerts = append(alerts, normalizeReceivedAt(a, itemBytes))
 	}
 	return alerts, nil
 }
@@ -278,10 +297,12 @@ func (s *AlertStore) Get(ctx context.Context, id string) (*StoredAlert, error) {
 		return nil, err
 	}
 	for _, item := range raw {
+		itemBytes := []byte(item)
 		var a StoredAlert
-		if err := json.Unmarshal([]byte(item), &a); err != nil {
+		if err := json.Unmarshal(itemBytes, &a); err != nil {
 			continue
 		}
+		a = normalizeReceivedAt(a, itemBytes)
 		if a.ID == id {
 			return &a, nil
 		}
