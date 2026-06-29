@@ -25,7 +25,7 @@ func Run() {
 
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":8083"
 	}
 
 	http.HandleFunc("/", srv.HandleAlertsPage)

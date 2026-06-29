@@ -231,7 +231,7 @@ Each alert in the payload is saved immediately with `source: webhook`. If Slack 
 receivers:
   - name: kcontext
     webhook_configs:
-      - url: http://kcontext:8080/webhook
+      - url: http://kcontext:8083/webhook
         send_resolved: true
 ```
 
@@ -283,7 +283,7 @@ URL examples: `/?range=custom&days=3` or `/?range=custom&from=2026-06-28&to=2026
 |----------|----------|---------|-------------|
 | `REDIS_ADDR` | no | `localhost:6379` | Redis address |
 | `ALERT_MAX` | no | `500` | Max alerts kept in Redis |
-| `LISTEN_ADDR` | no | `:8080` | HTTP listen address |
+| `LISTEN_ADDR` | no | `:8083` | HTTP listen address |
 | `ALERTMANAGER_URL` | no | — | Alertmanager base URL; enables polling when set |
 | `ALERTMANAGER_POLL_INTERVAL` | no | `30s` | How often to poll Alertmanager |
 | `ALERTMANAGER_TOKEN` | no | — | Bearer token for Alertmanager API |
@@ -301,7 +301,7 @@ export REDIS_ADDR=localhost:6379
 go run ./cmd/kcontext
 ```
 
-Open [http://localhost:8080/](http://localhost:8080/) for the alerts dashboard.
+Open [http://localhost:8083/](http://localhost:8083/) for the alerts dashboard.
 
 Optional Slack:
 
@@ -459,7 +459,7 @@ Tests use `package kcontext_test` and import `github.com/gqlo/kcontext`. Store a
 ## Test with curl
 
 ```bash
-curl -X POST http://localhost:8080/webhook \
+curl -X POST http://localhost:8083/webhook \
   -H 'Content-Type: application/json' \
   -d '{
     "alerts": [{
