@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-var alertsTemplate = template.Must(template.New("alerts").Parse(`<!DOCTYPE html>
+var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap{
+	"fmtRelative": FormatRelativeTime,
+	"fmtTime":     FormatAlertTime,
+}).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -109,6 +112,35 @@ var alertsTemplate = template.Must(template.New("alerts").Parse(`<!DOCTYPE html>
       padding: 0.4rem 0.6rem;
       font-size: 0.875rem;
     }
+    .custom-date-panel {
+      display: none;
+      flex-basis: 100%;
+      gap: 0.75rem;
+      align-items: flex-end;
+      padding: 0.85rem 1rem;
+      background: #f6f8fa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .custom-date-panel.open { display: flex; flex-wrap: wrap; }
+    .custom-date-tabs {
+      display: flex;
+      gap: 1rem;
+      flex-basis: 100%;
+      font-size: 0.875rem;
+    }
+    .custom-date-tabs label {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      cursor: pointer;
+      color: var(--text);
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 500;
+    }
+    .custom-date-body { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; }
+    .custom-date-body.hidden { display: none; }
     .actions { display: flex; gap: 0.5rem; align-items: center; }
     button, .btn-link {
       background: #1a7f37;
@@ -211,7 +243,31 @@ var alertsTemplate = template.Must(template.New("alerts").Parse(`<!DOCTYPE html>
           <option value="7d" {{if eq .Filters.DateRange "7d"}}selected{{end}}>Past 7 days</option>
           <option value="14d" {{if eq .Filters.DateRange "14d"}}selected{{end}}>Past 14 days</option>
           <option value="30d" {{if eq .Filters.DateRange "30d"}}selected{{end}}>Past 30 days</option>
+          <option value="custom" {{if eq .Filters.DateRangeSelect "custom"}}selected{{end}}>Custom…</option>
         </select>
+      </div>
+      <div id="custom-date-panel" class="custom-date-panel{{if .Filters.CustomDateOpen}} open{{end}}">
+        <div class="custom-date-tabs">
+          <label><input type="radio" name="custom_mode" value="days" {{if eq .Filters.CustomDateMode "days"}}checked{{end}}> Past N days</label>
+          <label><input type="radio" name="custom_mode" value="calendar" {{if eq .Filters.CustomDateMode "calendar"}}checked{{end}}> Calendar range</label>
+        </div>
+        <div id="custom-days-body" class="custom-date-body{{if eq .Filters.CustomDateMode "calendar"}} hidden{{end}}">
+          <div class="field">
+            <label for="days">Days</label>
+            <input id="days" type="number" name="days" min="1" max="3650" value="{{.Filters.DaysString}}" placeholder="e.g. 3">
+          </div>
+        </div>
+        <div id="custom-calendar-body" class="custom-date-body{{if eq .Filters.CustomDateMode "days"}} hidden{{end}}">
+          <div class="field">
+            <label for="from">From</label>
+            <input id="from" type="date" name="from" value="{{.Filters.FromDate}}">
+          </div>
+          <div class="field">
+            <label for="to">To</label>
+            <input id="to" type="date" name="to" value="{{.Filters.ToDate}}">
+          </div>
+        </div>
+        <button type="submit" id="apply-dates">Apply</button>
       </div>
       <div class="field">
         <label for="namespace">Namespace</label>
@@ -247,7 +303,7 @@ var alertsTemplate = template.Must(template.New("alerts").Parse(`<!DOCTYPE html>
       <tbody>
         {{range .Alerts}}
         <tr class="{{.RowClass}}">
-          <td><time>{{.ReceivedAt.Format "2006-01-02 15:04:05 UTC"}}</time></td>
+          <td><time title="{{fmtTime .ReceivedAt}}">{{fmtRelative .ReceivedAt}}</time></td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
           <td>
             <a class="alert-link" href="{{$.AlertDetailLink .ID}}"><strong>{{index .Labels "alertname"}}</strong></a>
@@ -277,9 +333,95 @@ var alertsTemplate = template.Must(template.New("alerts").Parse(`<!DOCTYPE html>
     (function () {
       var form = document.querySelector('form.filters');
       if (!form) return;
+      var range = document.getElementById('range');
+      var panel = document.getElementById('custom-date-panel');
+      var daysBody = document.getElementById('custom-days-body');
+      var calendarBody = document.getElementById('custom-calendar-body');
+      var days = document.getElementById('days');
+      var from = document.getElementById('from');
+      var to = document.getElementById('to');
+      var applyDates = document.getElementById('apply-dates');
+      var modeRadios = form.querySelectorAll('input[name="custom_mode"]');
+
+      function isCustomRange() {
+        return range && range.value === 'custom';
+      }
+
+      function showPanel(show) {
+        if (!panel) return;
+        panel.classList.toggle('open', show);
+      }
+
+      function customMode() {
+        var checked = form.querySelector('input[name="custom_mode"]:checked');
+        return checked ? checked.value : 'days';
+      }
+
+      function syncModePanels() {
+        var mode = customMode();
+        if (daysBody) daysBody.classList.toggle('hidden', mode !== 'days');
+        if (calendarBody) calendarBody.classList.toggle('hidden', mode !== 'calendar');
+      }
+
+      function clearCustomInputs() {
+        if (days) days.value = '';
+        if (from) from.value = '';
+        if (to) to.value = '';
+      }
+
+      function prepareCustomSubmit() {
+        if (range) range.value = 'custom';
+        var mode = customMode();
+        if (mode === 'days') {
+          if (from) { from.value = ''; from.disabled = true; }
+          if (to) { to.value = ''; to.disabled = true; }
+          if (days) days.disabled = false;
+        } else {
+          if (days) { days.value = ''; days.disabled = true; }
+          if (from) from.disabled = false;
+          if (to) to.disabled = false;
+        }
+      }
+
+      function enableCustomInputs() {
+        if (days) days.disabled = false;
+        if (from) from.disabled = false;
+        if (to) to.disabled = false;
+      }
+
       form.querySelectorAll('select').forEach(function (el) {
-        el.addEventListener('change', function () { form.submit(); });
+        el.addEventListener('change', function () {
+          if (el === range) {
+            if (el.value === 'custom') {
+              showPanel(true);
+              syncModePanels();
+              enableCustomInputs();
+              return;
+            }
+            showPanel(false);
+            clearCustomInputs();
+          }
+          form.submit();
+        });
       });
+
+      modeRadios.forEach(function (radio) {
+        radio.addEventListener('change', syncModePanels);
+      });
+
+      if (applyDates) {
+        applyDates.addEventListener('click', function (e) {
+          e.preventDefault();
+          prepareCustomSubmit();
+          form.submit();
+        });
+      }
+
+      if (isCustomRange()) {
+        showPanel(true);
+        syncModePanels();
+      }
+
       var alertname = document.getElementById('alertname');
       if (alertname) {
         alertname.addEventListener('keydown', function (e) {

@@ -17,6 +17,9 @@ type AlertFilters struct {
 	Source    string
 	DateRange string
 	Date      string // legacy single-day filter (YYYY-MM-DD)
+	Days      int    // past N days (overrides DateRange presets when > 0)
+	From      string // start of time window (datetime-local, date, or RFC3339)
+	To        string // end of time window
 	Namespace string
 	Alertname string
 	Page      int
@@ -77,11 +80,22 @@ func (f AlertFilters) Encode() string {
 	if f.Source != "" {
 		v.Set("source", f.Source)
 	}
-	if f.DateRange != "" {
+	if f.Days > 0 || f.From != "" || f.To != "" {
+		v.Set("range", "custom")
+	} else if f.DateRange != "" {
 		v.Set("range", f.DateRange)
 	}
 	if f.Date != "" {
 		v.Set("date", f.Date)
+	}
+	if f.Days > 0 {
+		v.Set("days", strconv.Itoa(f.Days))
+	}
+	if f.From != "" {
+		v.Set("from", f.From)
+	}
+	if f.To != "" {
+		v.Set("to", f.To)
 	}
 	if f.Namespace != "" {
 		v.Set("namespace", f.Namespace)
@@ -131,20 +145,75 @@ func ParseAlertFilters(r *http.Request) AlertFilters {
 	if page < 1 {
 		page = 1
 	}
+	days, _ := strconv.Atoi(strings.TrimSpace(q.Get("days")))
+	if days < 0 {
+		days = 0
+	}
 	return AlertFilters{
 		Severity:  strings.TrimSpace(q.Get("severity")),
 		Status:    strings.TrimSpace(q.Get("status")),
 		Source:    strings.TrimSpace(q.Get("source")),
 		DateRange: strings.TrimSpace(q.Get("range")),
 		Date:      strings.TrimSpace(q.Get("date")),
+		Days:      days,
+		From:      strings.TrimSpace(q.Get("from")),
+		To:        strings.TrimSpace(q.Get("to")),
 		Namespace: strings.TrimSpace(q.Get("namespace")),
 		Alertname: strings.TrimSpace(q.Get("alertname")),
 		Page:      page,
 	}
 }
 
+// DaysString returns the Days filter formatted for HTML number inputs.
+func (f AlertFilters) DaysString() string {
+	if f.Days <= 0 {
+		return ""
+	}
+	return strconv.Itoa(f.Days)
+}
+
+// DateRangeSelect returns the value for the Date dropdown (presets or "custom").
+func (f AlertFilters) DateRangeSelect() string {
+	if f.Days > 0 || f.From != "" || f.To != "" || f.DateRange == "custom" {
+		return "custom"
+	}
+	return f.DateRange
+}
+
+// CustomDateOpen reports whether the custom date panel should be visible.
+func (f AlertFilters) CustomDateOpen() bool {
+	return f.DateRangeSelect() == "custom"
+}
+
+// CustomDateMode returns "days" or "calendar" for the custom panel tab state.
+func (f AlertFilters) CustomDateMode() string {
+	if f.From != "" || f.To != "" {
+		return "calendar"
+	}
+	return "days"
+}
+
+// FromDate returns the From filter as YYYY-MM-DD for date inputs.
+func (f AlertFilters) FromDate() string {
+	return dateOnlyValue(f.From)
+}
+
+// ToDate returns the To filter as YYYY-MM-DD for date inputs.
+func (f AlertFilters) ToDate() string {
+	return dateOnlyValue(f.To)
+}
+
+func dateOnlyValue(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
 func (f AlertFilters) Active() bool {
 	return f.Severity != "" || f.Status != "" || f.Source != "" || f.DateRange != "" || f.Date != "" ||
+		f.Days > 0 || f.From != "" || f.To != "" ||
 		f.Namespace != "" || f.Alertname != ""
 }
 
@@ -169,8 +238,28 @@ func (f AlertFilters) Match(a StoredAlert) bool {
 
 func (f AlertFilters) matchDate(received time.Time) bool {
 	loc := time.Now().Location()
-	now := time.Now().In(loc)
 	receivedLocal := received.In(loc)
+
+	if from, ok := parseFilterTime(f.From, false); ok {
+		if receivedLocal.Before(from) {
+			return false
+		}
+	}
+	if to, ok := parseFilterTime(f.To, true); ok {
+		if receivedLocal.After(to) {
+			return false
+		}
+	}
+	if f.From != "" || f.To != "" {
+		return true
+	}
+
+	if f.Days > 0 {
+		cutoff := time.Now().Add(-time.Duration(f.Days) * 24 * time.Hour)
+		return !received.Before(cutoff)
+	}
+
+	now := time.Now().In(loc)
 
 	switch f.DateRange {
 	case "", "all":
@@ -186,6 +275,8 @@ func (f AlertFilters) matchDate(received time.Time) bool {
 		return received.After(time.Now().Add(-14 * 24 * time.Hour))
 	case "30d":
 		return received.After(time.Now().Add(-30 * 24 * time.Hour))
+	case "custom":
+		return true
 	default:
 		return true
 	}
@@ -200,6 +291,48 @@ func (f AlertFilters) matchDate(received time.Time) bool {
 	start := day
 	end := start.Add(24 * time.Hour)
 	return !receivedLocal.Before(start) && receivedLocal.Before(end)
+}
+
+// parseFilterTime parses from/to query values. end=true expands date-only and minute values to inclusive upper bounds.
+func parseFilterTime(raw string, end bool) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+
+	loc := time.Now().Location()
+	try := []struct {
+		layout string
+		adjust func(time.Time) time.Time
+	}{
+		{time.RFC3339, func(t time.Time) time.Time { return t }},
+		{"2006-01-02T15:04:05", func(t time.Time) time.Time {
+			if end {
+				return t
+			}
+			return t
+		}},
+		{"2006-01-02T15:04", func(t time.Time) time.Time {
+			if end {
+				return t.Add(time.Minute - time.Nanosecond)
+			}
+			return t
+		}},
+		{"2006-01-02", func(t time.Time) time.Time {
+			if end {
+				return t.Add(24*time.Hour - time.Nanosecond)
+			}
+			return t
+		}},
+	}
+
+	for _, item := range try {
+		t, err := time.ParseInLocation(item.layout, raw, loc)
+		if err == nil {
+			return item.adjust(t), true
+		}
+	}
+	return time.Time{}, false
 }
 
 func FilterAlerts(alerts []StoredAlert, f AlertFilters) []StoredAlert {

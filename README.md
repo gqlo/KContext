@@ -254,12 +254,21 @@ receivers:
 | `severity` | `critical`, `warning`, `info` |
 | `status` | `firing`, `resolved`, `suppressed` |
 | `source` | `poll`, `webhook` |
-| `range` | `today`, `7d`, `14d`, `30d` |
+| `range` | `today`, `7d`, `14d`, `30d`, or `custom` (opens custom panel) |
+| `days` | with `range=custom` — past N days rolling window |
+| `from` / `to` | with `range=custom` — calendar range (`YYYY-MM-DD`, inclusive) |
 | `namespace` | exact namespace name |
 | `alertname` | substring match (press Enter) |
 | `page` | page number (50 alerts per page) |
 
 Example: `/?range=today&severity=critical&namespace=openshift-monitoring&page=2`
+
+Custom date (choose **Custom…** in the Date dropdown):
+
+- **Past N days** — enter a number and click Apply
+- **Calendar range** — pick From/To dates and click Apply
+
+URL examples: `/?range=custom&days=3` or `/?range=custom&from=2026-06-28&to=2026-06-29`
 
 ## Requirements
 

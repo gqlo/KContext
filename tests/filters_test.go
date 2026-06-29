@@ -86,6 +86,79 @@ func TestAlertFilters_matchDate_oldAlert(t *testing.T) {
 	}
 }
 
+func TestAlertFilters_matchDate_customDays(t *testing.T) {
+	twoDaysAgo := time.Now().Add(-2 * 24 * time.Hour)
+	fiveDaysAgo := time.Now().Add(-5 * 24 * time.Hour)
+
+	alert2 := sampleAlert("1", "warning", "firing", "poll", "ns", "A", twoDaysAgo)
+	alert5 := sampleAlert("2", "warning", "firing", "poll", "ns", "B", fiveDaysAgo)
+
+	f := kcontext.AlertFilters{Days: 3}
+	if !f.Match(alert2) {
+		t.Error("alert within 3 days should match Days=3")
+	}
+	if f.Match(alert5) {
+		t.Error("alert older than 3 days should not match Days=3")
+	}
+}
+
+func TestAlertFilters_matchDate_fromTo(t *testing.T) {
+	loc := time.Now().Location()
+	mid := time.Date(2026, 6, 15, 12, 0, 0, 0, loc)
+	before := time.Date(2026, 6, 15, 9, 0, 0, 0, loc)
+	after := time.Date(2026, 6, 15, 15, 0, 0, 0, loc)
+
+	alertMid := sampleAlert("1", "info", "firing", "webhook", "ns", "A", mid)
+	alertBefore := sampleAlert("2", "info", "firing", "webhook", "ns", "B", before)
+	alertAfter := sampleAlert("3", "info", "firing", "webhook", "ns", "C", after)
+
+	f := kcontext.AlertFilters{
+		From: "2026-06-15T10:00",
+		To:   "2026-06-15T14:00",
+	}
+	if !f.Match(alertMid) {
+		t.Error("alert within from/to window should match")
+	}
+	if f.Match(alertBefore) {
+		t.Error("alert before from should not match")
+	}
+	if f.Match(alertAfter) {
+		t.Error("alert after to should not match")
+	}
+}
+
+func TestAlertFilters_customDateHelpers(t *testing.T) {
+	f := kcontext.AlertFilters{Days: 5}
+	if f.DateRangeSelect() != "custom" || !f.CustomDateOpen() || f.CustomDateMode() != "days" {
+		t.Fatalf("days custom = %+v select=%q open=%v mode=%q", f, f.DateRangeSelect(), f.CustomDateOpen(), f.CustomDateMode())
+	}
+
+	f2 := kcontext.AlertFilters{From: "2026-06-01", To: "2026-06-15"}
+	if f2.CustomDateMode() != "calendar" || f2.FromDate() != "2026-06-01" {
+		t.Fatalf("calendar custom = mode %q from %q", f2.CustomDateMode(), f2.FromDate())
+	}
+
+	enc := f.Encode()
+	if !strings.Contains(enc, "range=custom") || !strings.Contains(enc, "days=5") {
+		t.Errorf("Encode() = %q", enc)
+	}
+}
+
+func TestParseAlertFilters_customDates(t *testing.T) {
+	req := httptest.NewRequest("GET", "/?days=5&from=2026-06-01T08:00&to=2026-06-02T18:00", nil)
+	f := kcontext.ParseAlertFilters(req)
+	if f.Days != 5 || f.From != "2026-06-01T08:00" || f.To != "2026-06-02T18:00" {
+		t.Fatalf("ParseAlertFilters() = %+v", f)
+	}
+	if !f.Active() {
+		t.Error("custom date filters should be active")
+	}
+	enc := f.Encode()
+	if !strings.Contains(enc, "days=5") || !strings.Contains(enc, "from=") || !strings.Contains(enc, "to=") {
+		t.Errorf("Encode() = %q", enc)
+	}
+}
+
 func TestFilterAlerts(t *testing.T) {
 	now := time.Now()
 	alerts := []kcontext.StoredAlert{
