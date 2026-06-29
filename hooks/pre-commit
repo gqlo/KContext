@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Pre-commit hook for KContext
+#
+# Install with:
+#   git config core.hooksPath hooks
+# Or:
+#   ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
+#
+# Runs go test / go vet when Go files change, and markdownlint-cli2 on staged *.md.
+
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=d)
+[[ -z "$staged" ]] && exit 0
+
+errors=0
+run_go=0
+md_files=()
+
+while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+
+    if [[ "$f" =~ \.(md|MD)$ ]]; then
+        md_files+=("$f")
+    fi
+
+    case "$f" in
+        *.go|go.mod|go.sum)
+            run_go=1 ;;
+    esac
+done <<< "$staged"
+
+if ((run_go)); then
+    if type -p go &>/dev/null; then
+        echo "pre-commit: running go test..."
+        go test ./... || { echo "pre-commit: go test FAILED"; errors=$((errors + 1)); }
+        echo "pre-commit: running go vet..."
+        go vet ./... || { echo "pre-commit: go vet FAILED"; errors=$((errors + 1)); }
+    else
+        echo "pre-commit: WARNING -- go not found, skipping Go checks"
+    fi
+fi
+
+if ((${#md_files[@]})); then
+    if type -p markdownlint-cli2 &>/dev/null; then
+        echo "pre-commit: markdownlint-cli2 (${#md_files[@]} file(s))..."
+        markdownlint-cli2 "${md_files[@]}" || { echo "pre-commit: markdownlint-cli2 FAILED"; errors=$((errors + 1)); }
+    else
+        echo "pre-commit: WARNING -- markdownlint-cli2 not found, skipping Markdown lint"
+    fi
+fi
+
+if ((errors)); then
+    echo -e "\npre-commit: $errors check(s) failed -- commit aborted"
+    exit 1
+fi
+
+echo "pre-commit: all checks passed"

@@ -1,4 +1,4 @@
-package main
+package kcontext
 
 import (
 	"context"
@@ -190,7 +190,7 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-func (s *server) handleAlertDetail(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleAlertDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -216,7 +216,7 @@ func (s *server) handleAlertDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filters := parseAlertFilters(r)
+	filters := ParseAlertFilters(r)
 	back := "/"
 	if q := filters.Encode(); q != "" {
 		back = "/?" + q

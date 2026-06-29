@@ -1,4 +1,4 @@
-package main
+package kcontext
 
 import (
 	"context"
@@ -104,7 +104,13 @@ type AlertStore struct {
 	maxLen int64
 }
 
-func newAlertStore() (*AlertStore, error) {
+// NewAlertStoreWithRedis constructs an AlertStore backed by an existing Redis client.
+// Intended for tests; production code should use NewAlertStore.
+func NewAlertStoreWithRedis(rdb *redis.Client, maxLen int64) *AlertStore {
+	return &AlertStore{rdb: rdb, maxLen: maxLen}
+}
+
+func NewAlertStore() (*AlertStore, error) {
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
 		addr = "localhost:6379"
@@ -131,10 +137,10 @@ func newAlertStore() (*AlertStore, error) {
 }
 
 func (s *AlertStore) Save(ctx context.Context, alert Alert) error {
-	return s.saveStored(ctx, newStoredFromAlert(alert, "webhook"))
+	return s.saveStored(ctx, NewStoredFromAlert(alert, "webhook"))
 }
 
-func newStoredFromAlert(alert Alert, source string) StoredAlert {
+func NewStoredFromAlert(alert Alert, source string) StoredAlert {
 	return StoredAlert{
 		ID:           fmt.Sprintf("%d", time.Now().UnixNano()),
 		ReceivedAt:   time.Now().UTC(),
@@ -176,7 +182,7 @@ func (s *AlertStore) SyncPolled(ctx context.Context, alerts []PolledAlert) (newC
 			return newCount, resolvedCount, err
 		}
 
-		stored := newStoredFromAlert(polled.Alert, "poll")
+		stored := NewStoredFromAlert(polled.Alert, "poll")
 		stored.Fingerprint = polled.Fingerprint
 		if err := s.saveStored(ctx, stored); err != nil {
 			return newCount, resolvedCount, err
@@ -208,7 +214,7 @@ func (s *AlertStore) SyncPolled(ctx context.Context, alerts []PolledAlert) (newC
 			return newCount, resolvedCount, err
 		}
 
-		stored := newStoredFromAlert(cached, "poll")
+		stored := NewStoredFromAlert(cached, "poll")
 		stored.Fingerprint = fp
 		stored.Status = "resolved"
 		if err := s.saveStored(ctx, stored); err != nil {
@@ -238,6 +244,11 @@ func (s *AlertStore) saveStored(ctx context.Context, stored StoredAlert) error {
 	pipe.LTrim(ctx, alertsKey, 0, s.maxLen-1)
 	_, err = pipe.Exec(ctx)
 	return err
+}
+
+// Len returns the number of alerts stored in Redis.
+func (s *AlertStore) Len(ctx context.Context) (int64, error) {
+	return s.rdb.LLen(ctx, alertsKey).Result()
 }
 
 func (s *AlertStore) List(ctx context.Context, limit int64) ([]StoredAlert, error) {

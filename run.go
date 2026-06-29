@@ -1,4 +1,4 @@
-package main
+package kcontext
 
 import (
 	"log"
@@ -6,18 +6,14 @@ import (
 	"os"
 )
 
-func main() {
-	store, err := newAlertStore()
+// Run starts the KContext HTTP server and optional Alertmanager poller.
+func Run() {
+	store, err := NewAlertStore()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv := &server{
-		store:       store,
-		slackToken:  os.Getenv("SLACK_TOKEN"),
-		channelID:   os.Getenv("SLACK_CHANNEL_ID"),
-		dailyThread: map[string]string{},
-	}
+	srv := NewServer(store, os.Getenv("SLACK_TOKEN"), os.Getenv("SLACK_CHANNEL_ID"))
 
 	amClient, err := newAlertmanagerClient()
 	if err != nil {
@@ -32,12 +28,12 @@ func main() {
 		addr = ":8080"
 	}
 
-	http.HandleFunc("/", srv.handleAlertsPage)
-	http.HandleFunc("/alert", srv.handleAlertDetail)
-	http.HandleFunc("/webhook", srv.handleWebhook)
+	http.HandleFunc("/", srv.HandleAlertsPage)
+	http.HandleFunc("/alert", srv.HandleAlertDetail)
+	http.HandleFunc("/webhook", srv.HandleWebhook)
 
 	log.Printf("KContext listening on %s", addr)
-	if srv.slackEnabled() {
+	if srv.SlackEnabled() {
 		log.Print("Slack notifications enabled")
 	}
 	log.Fatal(http.ListenAndServe(addr, nil))

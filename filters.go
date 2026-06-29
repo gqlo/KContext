@@ -1,4 +1,4 @@
-package main
+package kcontext
 
 import (
 	"net/http"
@@ -22,7 +22,7 @@ type AlertFilters struct {
 	Page      int
 }
 
-type alertsPageData struct {
+type AlertsPageData struct {
 	Alerts     []StoredAlert
 	Count      int
 	Filtered   int
@@ -35,34 +35,34 @@ type alertsPageData struct {
 	PageEnd    int
 }
 
-func (d alertsPageData) PageLink(page int) string {
+func (d AlertsPageData) PageLink(page int) string {
 	f := d.Filters
 	f.Page = page
 	return "/?" + f.Encode()
 }
 
-func (d alertsPageData) PrevPageLink() string {
+func (d AlertsPageData) PrevPageLink() string {
 	if d.Page <= 1 {
 		return ""
 	}
 	return d.PageLink(d.Page - 1)
 }
 
-func (d alertsPageData) NextPageLink() string {
+func (d AlertsPageData) NextPageLink() string {
 	if d.Page >= d.TotalPages {
 		return ""
 	}
 	return d.PageLink(d.Page + 1)
 }
 
-func (d alertsPageData) NamespaceLink(ns string) string {
+func (d AlertsPageData) NamespaceLink(ns string) string {
 	f := d.Filters
 	f.Namespace = ns
 	f.Page = 1
 	return "/?" + f.Encode()
 }
 
-func (d alertsPageData) AlertDetailLink(id string) string {
+func (d AlertsPageData) AlertDetailLink(id string) string {
 	return "/alert?id=" + url.QueryEscape(id) + "&" + d.Filters.Encode()
 }
 
@@ -95,7 +95,7 @@ func (f AlertFilters) Encode() string {
 	return v.Encode()
 }
 
-func uniqueNamespaces(alerts []StoredAlert) []string {
+func UniqueNamespaces(alerts []StoredAlert) []string {
 	seen := make(map[string]struct{})
 	for _, a := range alerts {
 		if ns := a.Namespace(); ns != "" {
@@ -110,8 +110,8 @@ func uniqueNamespaces(alerts []StoredAlert) []string {
 	return out
 }
 
-func namespacesForFilter(alerts []StoredAlert, selected string) []string {
-	ns := uniqueNamespaces(alerts)
+func NamespacesForFilter(alerts []StoredAlert, selected string) []string {
+	ns := UniqueNamespaces(alerts)
 	if selected == "" {
 		return ns
 	}
@@ -125,7 +125,7 @@ func namespacesForFilter(alerts []StoredAlert, selected string) []string {
 	return ns
 }
 
-func parseAlertFilters(r *http.Request) AlertFilters {
+func ParseAlertFilters(r *http.Request) AlertFilters {
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(strings.TrimSpace(q.Get("page")))
 	if page < 1 {
@@ -202,7 +202,7 @@ func (f AlertFilters) matchDate(received time.Time) bool {
 	return !receivedLocal.Before(start) && receivedLocal.Before(end)
 }
 
-func filterAlerts(alerts []StoredAlert, f AlertFilters) []StoredAlert {
+func FilterAlerts(alerts []StoredAlert, f AlertFilters) []StoredAlert {
 	out := make([]StoredAlert, 0, len(alerts))
 	for _, a := range alerts {
 		if f.Match(a) {
@@ -212,7 +212,7 @@ func filterAlerts(alerts []StoredAlert, f AlertFilters) []StoredAlert {
 	return out
 }
 
-func paginateAlerts(alerts []StoredAlert, page int) (pageAlerts []StoredAlert, totalPages, pageNum int) {
+func PaginateAlerts(alerts []StoredAlert, page int) (pageAlerts []StoredAlert, totalPages, pageNum int) {
 	total := len(alerts)
 	if total == 0 {
 		return nil, 1, 1

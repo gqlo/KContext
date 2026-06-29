@@ -1,4 +1,4 @@
-package main
+package kcontext
 
 import (
 	"bytes"
@@ -291,7 +291,7 @@ var alertsTemplate = template.Must(template.New("alerts").Parse(`<!DOCTYPE html>
 </body>
 </html>`))
 
-type server struct {
+type Server struct {
 	store      *AlertStore
 	slackToken string
 	channelID  string
@@ -300,17 +300,32 @@ type server struct {
 	dailyThread map[string]string
 }
 
+// NewServer constructs an HTTP handler bundle for the dashboard and webhook.
+func NewServer(store *AlertStore, slackToken, channelID string) *Server {
+	return &Server{
+		store:       store,
+		slackToken:  slackToken,
+		channelID:   channelID,
+		dailyThread: map[string]string{},
+	}
+}
+
+// Store returns the alert store used by this server.
+func (s *Server) Store() *AlertStore {
+	return s.store
+}
+
 type alertPayload struct {
 	Alerts []Alert `json:"alerts"`
 }
 
-func (s *server) handleAlertsPage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	filters := parseAlertFilters(r)
+	filters := ParseAlertFilters(r)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -322,8 +337,8 @@ func (s *server) handleAlertsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	alerts := filterAlerts(all, filters)
-	pageAlerts, totalPages, page := paginateAlerts(alerts, filters.Page)
+	alerts := FilterAlerts(all, filters)
+	pageAlerts, totalPages, page := PaginateAlerts(alerts, filters.Page)
 	filters.Page = page
 
 	pageStart, pageEnd := 0, 0
@@ -333,13 +348,13 @@ func (s *server) handleAlertsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var buf bytes.Buffer
-	if err := alertsTemplate.Execute(&buf, alertsPageData{
+	if err := alertsTemplate.Execute(&buf, AlertsPageData{
 		Alerts:     pageAlerts,
 		Count:      len(pageAlerts),
 		Filtered:   len(alerts),
 		Total:      len(all),
 		Filters:    filters,
-		Namespaces: namespacesForFilter(all, filters.Namespace),
+		Namespaces: NamespacesForFilter(all, filters.Namespace),
 		Page:       page,
 		TotalPages: totalPages,
 		PageStart:  pageStart,
@@ -354,7 +369,7 @@ func (s *server) handleAlertsPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
-func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -375,18 +390,18 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if s.slackEnabled() {
+	if s.SlackEnabled() {
 		s.postAlertsToSlack(payload.Alerts)
 	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *server) slackEnabled() bool {
+func (s *Server) SlackEnabled() bool {
 	return s.slackToken != "" && s.channelID != ""
 }
 
-func (s *server) postAlertsToSlack(alerts []Alert) {
+func (s *Server) postAlertsToSlack(alerts []Alert) {
 	date := time.Now().Format("2006-01-02")
 	threadTs, err := s.getOrCreateThread(date)
 	if err != nil {
@@ -414,7 +429,7 @@ func (s *server) postAlertsToSlack(alerts []Alert) {
 	}
 }
 
-func (s *server) getOrCreateThread(date string) (string, error) {
+func (s *Server) getOrCreateThread(date string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

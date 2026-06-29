@@ -19,6 +19,7 @@ When something fires, operators need more than the alert text. KContext gathers 
 | [Configuration](#configuration) | Environment variables |
 | [Run locally](#run-locally) | Start Redis and the app on your machine |
 | [Redis data migration](#redis-data-migration) | Copy alert history between Redis instances |
+| [Development](#development) | Cursor rules, pre-commit hook, and CI |
 | [Endpoints](#endpoints) | HTTP routes |
 | [Test with curl](#test-with-curl) | Send a sample webhook payload |
 | [Slack setup](#slack-setup) | Bot token, scope, and channel config |
@@ -47,19 +48,26 @@ When something fires, operators need more than the alert text. KContext gathers 
 
 ```
 KContext/
-├── main.go           # Entry point — wires Redis, HTTP routes, optional poller & Slack
+├── .cursor/rules/    # Cursor AI rules (project context, Go standards, testing)
+├── .github/workflows/# CI — go test, go vet, markdownlint
+├── hooks/            # Git hooks (pre-commit)
+├── cmd/kcontext/     # main package — `go run ./cmd/kcontext`
+├── run.go            # Run() — wires Redis, HTTP routes, optional poller & Slack
 ├── alertmanager.go   # Alertmanager API client and background polling loop
 ├── store.go          # Redis persistence, deduplication, and StoredAlert helpers
 ├── handlers.go       # HTTP handlers, HTML dashboard template, webhook receiver
 ├── filters.go        # Query-param filters, pagination, URL helpers
 ├── slack.go          # Slack chat.postMessage helper
+├── details.go        # Alert detail page handler
+├── tests/            # External test package (kcontext_test)
 ├── go.mod
 └── README.md
 ```
 
 | File | Responsibility |
 |------|----------------|
-| `main.go` | Creates `AlertStore`, starts `startAlertmanagerPoller` when `ALERTMANAGER_URL` is set, registers `GET /` and `POST /webhook` |
+| `cmd/kcontext/main.go` | Entry point; calls `kcontext.Run()` |
+| `run.go` | Creates `AlertStore`, starts poller when configured, registers HTTP routes |
 | `alertmanager.go` | `GET {ALERTMANAGER_URL}/api/v2/alerts` on a ticker; maps results into `SyncPolled` |
 | `store.go` | Saves alerts to Redis list `kcontext:alerts`; tracks fingerprints for poll dedup / resolved detection |
 | `handlers.go` | Renders the dashboard; accepts Alertmanager webhook JSON |
@@ -89,7 +97,7 @@ Both paths write to the same Redis store and appear on the same dashboard.
 
 ## Alert polling
 
-Polling is enabled when `ALERTMANAGER_URL` is set. On startup, `main.go` launches `startAlertmanagerPoller` in a goroutine.
+Polling is enabled when `ALERTMANAGER_URL` is set. On startup, `Run()` launches `startAlertmanagerPoller` in a goroutine.
 
 ### Request
 
@@ -281,7 +289,7 @@ Start Redis, then:
 
 ```bash
 export REDIS_ADDR=localhost:6379
-go run .
+go run ./cmd/kcontext
 ```
 
 Open [http://localhost:8080/](http://localhost:8080/) for the alerts dashboard.
@@ -378,6 +386,59 @@ while read -r field && read -r val; do
 done < /tmp/hash.txt"
 done
 ```
+
+## Development
+
+### Cursor rules
+
+Project-specific AI guidance lives in `.cursor/rules/` (adapted from the vstorm project):
+
+| Rule | Scope | Purpose |
+|------|-------|---------|
+| `project-context.mdc` | always | Architecture, Redis keys, dependencies |
+| `go-standards.mdc` | `**/*.go` | Go conventions, error handling, HTTP patterns |
+| `redis-store.mdc` | `store.go` | Redis key layout, dedup, migration notes |
+| `go-testing.mdc` | `**/*_test.go` | Table-driven tests, httptest, miniredis |
+| `ci-workflow.mdc` | `.github/workflows/*` | GitHub Actions conventions |
+| `pre-commit-checks.mdc` | always | Checks to run before committing |
+| `karpathy-guidelines.mdc` | always | Simplicity, surgical changes, goal-driven execution |
+| `test-fix-discipline.mdc` | always | Fix code before weakening tests |
+| `cursor-debug-logs.mdc` | always | Debug logs go under `logs/`, not `.cursor/` |
+
+### Pre-commit hook
+
+Install once:
+
+```bash
+git config core.hooksPath hooks
+```
+
+The hook runs `go test`, `go vet` when Go files are staged, and `markdownlint-cli2` on staged Markdown. The script itself is Bash (standard for git hooks); no separate shell coding rule is needed for this Go project.
+
+### CI
+
+GitHub Actions (`.github/workflows/test.yaml`) runs on push/PR to `main`:
+
+- `go test -race ./...`
+- `go vet ./...`
+- `markdownlint-cli2` on `**/*.md`
+
+### Tests
+
+```bash
+go test ./...
+go test -race -cover ./...
+go vet ./...
+```
+
+| File | Covers |
+|------|--------|
+| `tests/filters_test.go` | Query filters, pagination, `StoredAlert` helpers, page links |
+| `tests/store_test.go` | Redis save/list/trim, `Get`, `SyncPolled` dedup and resolved (via miniredis) |
+| `tests/handlers_test.go` | Webhook ingest, dashboard HTML, method guards |
+| `tests/helpers_test.go` | Shared test fixtures (`testStore`, `testServer`, `sampleAlert`) |
+
+Tests use `package kcontext_test` and import `github.com/gqlo/kcontext`. Store and handler tests use [miniredis](https://github.com/alicebob/miniredis) — no live Redis required for CI or local `go test ./...`.
 
 ## Endpoints
 
