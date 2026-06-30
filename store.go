@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +96,18 @@ func (a StoredAlert) Severity() string {
 	return strings.ToLower(strings.TrimSpace(a.Labels["severity"]))
 }
 
+// DisplayTime returns the best timestamp for dashboard display: alert startsAt when
+// available, otherwise when KContext received/stored the alert.
+func (a StoredAlert) DisplayTime() time.Time {
+	if !a.StartsAt.IsZero() && a.StartsAt.Year() >= 1970 {
+		return a.StartsAt.UTC()
+	}
+	if !a.ReceivedAt.IsZero() && a.ReceivedAt.Year() >= 1970 {
+		return a.ReceivedAt.UTC()
+	}
+	return time.Time{}
+}
+
 func (a StoredAlert) RowClass() string {
 	switch strings.ToLower(a.Status) {
 	case "resolved":
@@ -118,29 +129,19 @@ type PolledAlert struct {
 }
 
 type AlertStore struct {
-	rdb    *redis.Client
-	maxLen int64
+	rdb *redis.Client
 }
 
 // NewAlertStoreWithRedis constructs an AlertStore backed by an existing Redis client.
 // Intended for tests; production code should use NewAlertStore.
-func NewAlertStoreWithRedis(rdb *redis.Client, maxLen int64) *AlertStore {
-	return &AlertStore{rdb: rdb, maxLen: maxLen}
+func NewAlertStoreWithRedis(rdb *redis.Client) *AlertStore {
+	return &AlertStore{rdb: rdb}
 }
 
 func NewAlertStore() (*AlertStore, error) {
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
 		addr = "localhost:6379"
-	}
-
-	maxLen := int64(500)
-	if v := os.Getenv("ALERT_MAX"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("ALERT_MAX: %w", err)
-		}
-		maxLen = n
 	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
@@ -151,7 +152,7 @@ func NewAlertStore() (*AlertStore, error) {
 		return nil, fmt.Errorf("redis ping %s: %w", addr, err)
 	}
 
-	return &AlertStore{rdb: rdb, maxLen: maxLen}, nil
+	return &AlertStore{rdb: rdb}, nil
 }
 
 func (s *AlertStore) Save(ctx context.Context, alert Alert) error {
@@ -257,11 +258,7 @@ func (s *AlertStore) saveStored(ctx context.Context, stored StoredAlert) error {
 		return err
 	}
 
-	pipe := s.rdb.Pipeline()
-	pipe.LPush(ctx, alertsKey, body)
-	pipe.LTrim(ctx, alertsKey, 0, s.maxLen-1)
-	_, err = pipe.Exec(ctx)
-	return err
+	return s.rdb.LPush(ctx, alertsKey, body).Err()
 }
 
 // Len returns the number of alerts stored in Redis.
@@ -270,11 +267,12 @@ func (s *AlertStore) Len(ctx context.Context) (int64, error) {
 }
 
 func (s *AlertStore) List(ctx context.Context, limit int64) ([]StoredAlert, error) {
+	end := limit - 1
 	if limit <= 0 {
-		limit = 100
+		end = -1
 	}
 
-	raw, err := s.rdb.LRange(ctx, alertsKey, 0, limit-1).Result()
+	raw, err := s.rdb.LRange(ctx, alertsKey, 0, end).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +290,7 @@ func (s *AlertStore) List(ctx context.Context, limit int64) ([]StoredAlert, erro
 }
 
 func (s *AlertStore) Get(ctx context.Context, id string) (*StoredAlert, error) {
-	raw, err := s.rdb.LRange(ctx, alertsKey, 0, s.maxLen-1).Result()
+	raw, err := s.rdb.LRange(ctx, alertsKey, 0, -1).Result()
 	if err != nil {
 		return nil, err
 	}

@@ -206,7 +206,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
 <body>
   <header>
     <h1><a href="/" title="Clear all filters">KContext</a></h1>
-    <p>{{if .Filters.Active}}{{if gt .Filtered 0}}Showing {{.PageStart}}–{{.PageEnd}} of {{.Filtered}} matching alert(s){{else}}No matching alerts{{end}}{{if lt .Filtered .Total}} · {{.Total}} total stored{{end}}{{else}}{{if gt .Filtered 0}}{{.Filtered}} alert(s) stored{{else}}No alerts stored{{end}}{{end}} · newest first</p>
+    <p>{{if gt .Filtered 0}}Showing {{.PageStart}}–{{.PageEnd}} of {{.Filtered}} alert(s){{if lt .Filtered .Total}} · {{.Total}} total stored{{end}}{{else}}No alerts match the current filters{{end}} · newest first</p>
   </header>
   <main>
     <form class="filters" method="get" action="/">
@@ -291,7 +291,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     <table>
       <thead>
         <tr>
-          <th>Received</th>
+          <th>Started</th>
           <th>Status</th>
           <th>Alert</th>
           <th>Namespace</th>
@@ -304,7 +304,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       <tbody>
         {{range .Alerts}}
         <tr class="{{.RowClass}}">
-          <td><time class="relative-time" datetime="{{fmtISO .ReceivedAt}}" title="{{fmtTime .ReceivedAt}}">{{fmtRelative .ReceivedAt}}</time></td>
+          <td><time class="relative-time" datetime="{{fmtISO .DisplayTime}}" title="{{fmtTime .DisplayTime}}">{{fmtRelative .DisplayTime}}</time></td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
           <td>
             <a class="alert-link" href="{{$.AlertDetailLink .ID}}"><strong>{{index .Labels "alertname"}}</strong></a>
@@ -474,7 +474,7 @@ func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	all, err := s.store.List(ctx, 500)
+	all, err := s.store.List(ctx, 0)
 	if err != nil {
 		log.Printf("list alerts: %v", err)
 		http.Error(w, "failed to load alerts", http.StatusInternalServerError)
@@ -482,12 +482,12 @@ func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	alerts := FilterAlerts(all, filters)
-	pageAlerts, totalPages, page := PaginateAlerts(alerts, filters.Page)
+	pageAlerts, totalPages, page := PaginateAlerts(alerts, filters.Page, filters.PerPage)
 	filters.Page = page
 
 	pageStart, pageEnd := 0, 0
 	if len(pageAlerts) > 0 {
-		pageStart = (page-1)*alertsPerPage + 1
+		pageStart = (page-1)*filters.PerPage + 1
 		pageEnd = pageStart + len(pageAlerts) - 1
 	}
 

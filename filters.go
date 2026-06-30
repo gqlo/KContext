@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-const alertsPerPage = 50
+const defaultAlertsPerPage = 2000
+const maxAlertsPerPage = 2000
 
 type AlertFilters struct {
 	Severity  string
@@ -23,6 +24,7 @@ type AlertFilters struct {
 	Namespace string
 	Alertname string
 	Page      int
+	PerPage   int
 }
 
 type AlertsPageData struct {
@@ -106,6 +108,9 @@ func (f AlertFilters) Encode() string {
 	if f.Page > 1 {
 		v.Set("page", strconv.Itoa(f.Page))
 	}
+	if f.PerPage > 0 && f.PerPage != defaultAlertsPerPage {
+		v.Set("per_page", strconv.Itoa(f.PerPage))
+	}
 	return v.Encode()
 }
 
@@ -149,6 +154,13 @@ func ParseAlertFilters(r *http.Request) AlertFilters {
 	if days < 0 {
 		days = 0
 	}
+	perPage, _ := strconv.Atoi(strings.TrimSpace(q.Get("per_page")))
+	if perPage <= 0 {
+		perPage = defaultAlertsPerPage
+	}
+	if perPage > maxAlertsPerPage {
+		perPage = maxAlertsPerPage
+	}
 	return AlertFilters{
 		Severity:  strings.TrimSpace(q.Get("severity")),
 		Status:    strings.TrimSpace(q.Get("status")),
@@ -161,6 +173,7 @@ func ParseAlertFilters(r *http.Request) AlertFilters {
 		Namespace: strings.TrimSpace(q.Get("namespace")),
 		Alertname: strings.TrimSpace(q.Get("alertname")),
 		Page:      page,
+		PerPage:   perPage,
 	}
 }
 
@@ -233,7 +246,7 @@ func (f AlertFilters) Match(a StoredAlert) bool {
 	if f.Alertname != "" && !strings.Contains(strings.ToLower(a.Labels["alertname"]), strings.ToLower(f.Alertname)) {
 		return false
 	}
-	return f.matchDate(a.ReceivedAt)
+	return f.matchDate(a.DisplayTime())
 }
 
 func (f AlertFilters) matchDate(received time.Time) bool {
@@ -345,17 +358,20 @@ func FilterAlerts(alerts []StoredAlert, f AlertFilters) []StoredAlert {
 	return out
 }
 
-func PaginateAlerts(alerts []StoredAlert, page int) (pageAlerts []StoredAlert, totalPages, pageNum int) {
+func PaginateAlerts(alerts []StoredAlert, page, perPage int) (pageAlerts []StoredAlert, totalPages, pageNum int) {
+	if perPage <= 0 {
+		perPage = defaultAlertsPerPage
+	}
 	total := len(alerts)
 	if total == 0 {
 		return nil, 1, 1
 	}
-	totalPages = (total + alertsPerPage - 1) / alertsPerPage
+	totalPages = (total + perPage - 1) / perPage
 	if page > totalPages {
 		page = totalPages
 	}
-	start := (page - 1) * alertsPerPage
-	end := start + alertsPerPage
+	start := (page - 1) * perPage
+	end := start + perPage
 	if end > total {
 		end = total
 	}

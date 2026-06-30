@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
+
+const defaultAlertmanagerURL = "https://localhost:9094"
 
 type alertmanagerClient struct {
 	baseURL    string
@@ -34,23 +37,29 @@ type amAlert struct {
 }
 
 func newAlertmanagerClient() (*alertmanagerClient, error) {
-	baseURL := strings.TrimRight(os.Getenv("ALERTMANAGER_URL"), "/")
-	if baseURL == "" {
+	if !alertmanagerPollingEnabled() {
 		return nil, nil
 	}
 
-	token := os.Getenv("ALERTMANAGER_TOKEN")
-	if token == "" {
-		if path := os.Getenv("ALERTMANAGER_TOKEN_FILE"); path != "" {
-			b, err := os.ReadFile(path)
-			if err != nil {
-				return nil, fmt.Errorf("read ALERTMANAGER_TOKEN_FILE: %w", err)
-			}
-			token = strings.TrimSpace(string(b))
-		}
+	baseURL := alertmanagerURL()
+	token, tokenSource, err := alertmanagerToken()
+	if err != nil {
+		return nil, err
+	}
+	insecure := alertmanagerTLSInsecure()
+
+	if _, ok := os.LookupEnv("ALERTMANAGER_URL"); !ok {
+		log.Printf("ALERTMANAGER_URL not set, using default %s", baseURL)
+	}
+	if _, ok := os.LookupEnv("ALERTMANAGER_TLS_INSECURE"); !ok {
+		log.Printf("ALERTMANAGER_TLS_INSECURE not set, using default true (port-forward TLS)")
+	}
+	if tokenSource != "" {
+		log.Printf("Alertmanager auth: %s", tokenSource)
+	} else if token == "" {
+		log.Print("WARNING: no Alertmanager token — set ALERTMANAGER_TOKEN, ALERTMANAGER_TOKEN_FILE, or run oc login")
 	}
 
-	insecure := os.Getenv("ALERTMANAGER_TLS_INSECURE") == "true"
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec
 
@@ -62,6 +71,62 @@ func newAlertmanagerClient() (*alertmanagerClient, error) {
 			Transport: transport,
 		},
 	}, nil
+}
+
+func alertmanagerPollingEnabled() bool {
+	v, ok := os.LookupEnv("ALERTMANAGER_URL")
+	if !ok {
+		return true
+	}
+	return strings.TrimSpace(v) != ""
+}
+
+func alertmanagerURL() string {
+	v, ok := os.LookupEnv("ALERTMANAGER_URL")
+	if !ok {
+		return defaultAlertmanagerURL
+	}
+	return strings.TrimRight(strings.TrimSpace(v), "/")
+}
+
+func alertmanagerTLSInsecure() bool {
+	v, ok := os.LookupEnv("ALERTMANAGER_TLS_INSECURE")
+	if !ok {
+		return true
+	}
+	return v == "true"
+}
+
+func alertmanagerToken() (token, source string, err error) {
+	if t := strings.TrimSpace(os.Getenv("ALERTMANAGER_TOKEN")); t != "" {
+		return t, "ALERTMANAGER_TOKEN", nil
+	}
+	if path := os.Getenv("ALERTMANAGER_TOKEN_FILE"); path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", "", fmt.Errorf("read ALERTMANAGER_TOKEN_FILE: %w", err)
+		}
+		return strings.TrimSpace(string(b)), "ALERTMANAGER_TOKEN_FILE", nil
+	}
+	t, err := ocWhoamiToken()
+	if err != nil {
+		return "", "", err
+	}
+	if t != "" {
+		return t, "oc whoami -t", nil
+	}
+	return "", "", nil
+}
+
+func ocWhoamiToken() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "oc", "whoami", "-t").Output()
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func (c *alertmanagerClient) FetchActive(ctx context.Context) ([]amAlert, error) {
@@ -104,12 +169,12 @@ func (c *alertmanagerClient) FetchActive(ctx context.Context) ([]amAlert, error)
 func parsePollInterval() time.Duration {
 	raw := os.Getenv("ALERTMANAGER_POLL_INTERVAL")
 	if raw == "" {
-		return 30 * time.Second
+		return 10 * time.Second
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil {
-		log.Printf("invalid ALERTMANAGER_POLL_INTERVAL %q, using 30s: %v", raw, err)
-		return 30 * time.Second
+		log.Printf("invalid ALERTMANAGER_POLL_INTERVAL %q, using 10s: %v", raw, err)
+		return 10 * time.Second
 	}
 	if d < 5*time.Second {
 		return 5 * time.Second

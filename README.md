@@ -97,15 +97,15 @@ Both paths write to the same Redis store and appear on the same dashboard.
 
 ## Alert polling
 
-Polling is enabled when `ALERTMANAGER_URL` is set. On startup, `Run()` launches `startAlertmanagerPoller` in a goroutine.
+Polling is **enabled by default** against `https://localhost:9094` (typical `oc port-forward` target). Set `ALERTMANAGER_URL=""` to disable. On startup, `Run()` launches `startAlertmanagerPoller` in a goroutine when polling is enabled.
 
 ### Request
 
-Every `ALERTMANAGER_POLL_INTERVAL` (default **30s**), KContext calls:
+Every `ALERTMANAGER_POLL_INTERVAL` (default **10s**), KContext calls:
 
 ```
 GET {ALERTMANAGER_URL}/api/v2/alerts?active=true&silenced=false&inhibited=false
-Authorization: Bearer {token}   # when ALERTMANAGER_TOKEN or TOKEN_FILE is set
+Authorization: Bearer {token}   # ALERTMANAGER_TOKEN, ALERTMANAGER_TOKEN_FILE, or oc whoami -t
 ```
 
 Try it manually (with port-forward running):
@@ -199,7 +199,7 @@ Fingerprint state is tracked in Redis keys:
 
 | Key | Purpose |
 |-----|---------|
-| `kcontext:alerts` | List of JSON `StoredAlert` records (newest first, trimmed to `ALERT_MAX`) |
+| `kcontext:alerts` | List of JSON `StoredAlert` records (newest first) |
 | `kcontext:active-fingerprints` | Set of currently firing fingerprints |
 | `kcontext:fp-state` | Last known status per fingerprint |
 | `kcontext:fp-meta` | Cached labels/annotations for resolved detection |
@@ -237,7 +237,7 @@ receivers:
 
 ## Dashboard rendering
 
-`GET /` loads up to **500** alerts from Redis, applies filters, paginates, and renders server-side HTML via Go's `html/template` (embedded in `handlers.go`).
+`GET /` loads all alerts from Redis, applies filters, paginates, and renders server-side HTML via Go's `html/template` (embedded in `handlers.go`).
 
 ### Display
 
@@ -282,13 +282,12 @@ URL examples: `/?range=custom&days=3` or `/?range=custom&from=2026-06-28&to=2026
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `REDIS_ADDR` | no | `localhost:6379` | Redis address |
-| `ALERT_MAX` | no | `500` | Max alerts kept in Redis |
 | `LISTEN_ADDR` | no | `:8083` | HTTP listen address |
-| `ALERTMANAGER_URL` | no | — | Alertmanager base URL; enables polling when set |
-| `ALERTMANAGER_POLL_INTERVAL` | no | `30s` | How often to poll Alertmanager |
-| `ALERTMANAGER_TOKEN` | no | — | Bearer token for Alertmanager API |
-| `ALERTMANAGER_TOKEN_FILE` | no | — | Path to token file (e.g. in-cluster SA token) |
-| `ALERTMANAGER_TLS_INSECURE` | no | `false` | Skip TLS verification (`true` for port-forward) |
+| `ALERTMANAGER_URL` | no | `https://localhost:9094` | Alertmanager base URL; set to `""` to disable polling |
+| `ALERTMANAGER_POLL_INTERVAL` | no | `10s` | How often to poll Alertmanager |
+| `ALERTMANAGER_TOKEN` | no | `oc whoami -t` | Bearer token for Alertmanager API |
+| `ALERTMANAGER_TOKEN_FILE` | no | — | Path to token file (overrides token env; e.g. in-cluster SA token) |
+| `ALERTMANAGER_TLS_INSECURE` | no | `true` | Skip TLS verification (`false` for proper TLS) |
 | `SLACK_TOKEN` | no | — | Slack bot token (`xoxb-...`) |
 | `SLACK_CHANNEL_ID` | no | — | Target channel ID (`C...`) |
 

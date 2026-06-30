@@ -178,19 +178,32 @@ func TestPaginateAlerts(t *testing.T) {
 		alerts[i] = kcontext.StoredAlert{ID: string(rune('a' + i))}
 	}
 
-	page, totalPages, pageNum := kcontext.PaginateAlerts(alerts, 2)
+	page, totalPages, pageNum := kcontext.PaginateAlerts(alerts, 2, 50)
 	if len(page) != 5 || totalPages != 2 || pageNum != 2 {
 		t.Fatalf("PaginateAlerts page 2 = len %d totalPages %d pageNum %d", len(page), totalPages, pageNum)
 	}
 
-	empty, tp, pn := kcontext.PaginateAlerts(nil, 1)
+	empty, tp, pn := kcontext.PaginateAlerts(nil, 1, 50)
 	if empty != nil || tp != 1 || pn != 1 {
 		t.Fatalf("empty paginate = %v %d %d", empty, tp, pn)
 	}
 
-	_, _, pnHigh := kcontext.PaginateAlerts(alerts, 99)
+	_, _, pnHigh := kcontext.PaginateAlerts(alerts, 99, 50)
 	if pnHigh != 2 {
 		t.Errorf("page beyond total should clamp to %d, got %d", 2, pnHigh)
+	}
+}
+
+func TestStoredAlert_DisplayTime(t *testing.T) {
+	start := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	received := time.Date(2026, 6, 29, 15, 0, 0, 0, time.UTC)
+	a := kcontext.StoredAlert{ReceivedAt: received, StartsAt: start}
+	if !a.DisplayTime().Equal(start) {
+		t.Fatalf("DisplayTime with startsAt = %v, want %v", a.DisplayTime(), start)
+	}
+	b := kcontext.StoredAlert{ReceivedAt: received}
+	if !b.DisplayTime().Equal(received) {
+		t.Fatalf("DisplayTime without startsAt = %v, want %v", b.DisplayTime(), received)
 	}
 }
 

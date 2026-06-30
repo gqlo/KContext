@@ -11,7 +11,7 @@ import (
 )
 
 func TestSaveAndList(t *testing.T) {
-	s := testStore(t, 500)
+	s := testStore(t)
 	ctx := context.Background()
 
 	err := s.Save(ctx, kcontext.Alert{
@@ -38,7 +38,7 @@ func TestSaveAndList(t *testing.T) {
 }
 
 func TestList_respectsLimit(t *testing.T) {
-	s := testStore(t, 500)
+	s := testStore(t)
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -56,30 +56,8 @@ func TestList_respectsLimit(t *testing.T) {
 	}
 }
 
-func TestSave_trimsToMaxLen(t *testing.T) {
-	s := testStore(t, 3)
-	ctx := context.Background()
-
-	for i := 0; i < 5; i++ {
-		if err := s.Save(ctx, kcontext.Alert{
-			Status: "firing",
-			Labels: map[string]string{"alertname": string(rune('A' + i))},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	n, err := s.Len(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 3 {
-		t.Fatalf("Len = %d, want 3", n)
-	}
-}
-
 func TestGet(t *testing.T) {
-	s := testStore(t, 500)
+	s := testStore(t)
 	ctx := context.Background()
 
 	if err := s.Save(ctx, kcontext.Alert{Status: "firing", Labels: map[string]string{"alertname": "X"}}); err != nil {
@@ -109,7 +87,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestSyncPolled_newAndDedup(t *testing.T) {
-	s := testStore(t, 500)
+	s := testStore(t)
 	ctx := context.Background()
 
 	fp := "abc123"
@@ -145,7 +123,7 @@ func TestSyncPolled_newAndDedup(t *testing.T) {
 }
 
 func TestSyncPolled_resolvedWhenMissing(t *testing.T) {
-	s := testStore(t, 500)
+	s := testStore(t)
 	ctx := context.Background()
 
 	fp := "deadbeef"
@@ -207,7 +185,7 @@ func TestList_legacyReceivedAtFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := kcontext.NewAlertStoreWithRedis(rdb, 500)
+	s := kcontext.NewAlertStoreWithRedis(rdb)
 	alerts, err := s.List(ctx, 10)
 	if err != nil {
 		t.Fatal(err)

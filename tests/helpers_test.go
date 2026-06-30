@@ -9,17 +9,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func testStore(t *testing.T, maxLen int64) *kcontext.AlertStore {
+func testStore(t *testing.T) *kcontext.AlertStore {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return kcontext.NewAlertStoreWithRedis(rdb, maxLen)
+	return kcontext.NewAlertStoreWithRedis(rdb)
 }
 
 func testServer(t *testing.T) *kcontext.Server {
 	t.Helper()
-	return kcontext.NewServer(testStore(t, 500), "", "")
+	return kcontext.NewServer(testStore(t), "", "")
 }
 
 func sampleAlert(id, severity, status, source, ns, alertname string, received time.Time) kcontext.StoredAlert {
