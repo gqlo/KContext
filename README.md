@@ -97,7 +97,7 @@ Both paths write to the same Redis store and appear on the same dashboard.
 
 ## Alert polling
 
-Polling is **enabled by default** against `https://localhost:9094` (typical `oc port-forward` target). Set `ALERTMANAGER_URL=""` to disable. On startup, `Run()` launches `startAlertmanagerPoller` in a goroutine when polling is enabled.
+Polling is **enabled by default** against `https://localhost:9094`. KContext starts `oc port-forward` automatically when the URL is localhost (or unset). Set `ALERTMANAGER_PORT_FORWARD=false` to manage port-forward yourself, or `ALERTMANAGER_URL=""` to disable polling entirely.
 
 ### Request
 
@@ -212,11 +212,12 @@ export ALERTMANAGER_URL=https://alertmanager-main.openshift-monitoring.svc:9094
 export ALERTMANAGER_TOKEN_FILE=/var/run/secrets/kubernetes.io/serviceaccount/token
 export ALERTMANAGER_TLS_INSECURE=true
 
-# local dev (requires oc login + port-forward)
-oc port-forward -n openshift-monitoring svc/alertmanager-main 9094:9094
-export ALERTMANAGER_URL=https://localhost:9094
-export ALERTMANAGER_TOKEN=$(oc whoami -t)
-export ALERTMANAGER_TLS_INSECURE=true
+# local dev (oc login required; port-forward is started automatically by KContext)
+go run ./cmd/kcontext
+
+# or manage port-forward yourself:
+# oc port-forward -n openshift-monitoring svc/alertmanager-main 9094:9094
+# export ALERTMANAGER_PORT_FORWARD=false
 ```
 
 The token needs permission to read Alertmanager (e.g. `cluster-monitoring-view`).
@@ -284,6 +285,11 @@ URL examples: `/?range=custom&days=3` or `/?range=custom&from=2026-06-28&to=2026
 | `REDIS_ADDR` | no | `localhost:6379` | Redis address |
 | `LISTEN_ADDR` | no | `:8083` | HTTP listen address |
 | `ALERTMANAGER_URL` | no | `https://localhost:9094` | Alertmanager base URL; set to `""` to disable polling |
+| `ALERTMANAGER_PORT_FORWARD` | no | `auto` | Start `oc port-forward` when URL is localhost; `false` to disable, `true` to force |
+| `ALERTMANAGER_PF_NAMESPACE` | no | `openshift-monitoring` | Namespace for auto port-forward |
+| `ALERTMANAGER_PF_SERVICE` | no | `alertmanager-main` | Service name for auto port-forward |
+| `ALERTMANAGER_PF_LOCAL_PORT` | no | `9094` | Local port for auto port-forward |
+| `ALERTMANAGER_PF_REMOTE_PORT` | no | `9094` | Remote port for auto port-forward |
 | `ALERTMANAGER_POLL_INTERVAL` | no | `10s` | How often to poll Alertmanager |
 | `ALERTMANAGER_TOKEN` | no | `oc whoami -t` | Bearer token for Alertmanager API |
 | `ALERTMANAGER_TOKEN_FILE` | no | — | Path to token file (overrides token env; e.g. in-cluster SA token) |

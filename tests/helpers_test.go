@@ -1,6 +1,7 @@
 package kcontext_test
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -8,6 +9,21 @@ import (
 	"github.com/gqlo/kcontext"
 	"github.com/redis/go-redis/v9"
 )
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	orig, existed := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if existed {
+			os.Setenv(key, orig)
+		} else {
+			os.Unsetenv(key)
+		}
+	})
+}
 
 func testStore(t *testing.T) *kcontext.AlertStore {
 	t.Helper()
