@@ -205,6 +205,21 @@ func TestRankAlertsByNamespace(t *testing.T) {
 	}
 }
 
+func TestRankAlertsByNamespace_respectsFilters(t *testing.T) {
+	now := time.Now()
+	alerts := []kcontext.StoredAlert{
+		sampleAlert("1", "critical", "firing", "webhook", "kube-system", "A", now),
+		sampleAlert("2", "warning", "firing", "webhook", "openshift-monitoring", "B", now),
+		sampleAlert("3", "warning", "firing", "webhook", "openshift-monitoring", "C", now),
+	}
+
+	filtered := kcontext.FilterAlerts(alerts, kcontext.AlertFilters{Severity: "critical"})
+	got := kcontext.RankAlertsByNamespace(filtered)
+	if len(got) != 1 || got[0].Namespace != "kube-system" || got[0].Count != 1 {
+		t.Fatalf("RankAlertsByNamespace(filtered) = %+v, want kube-system:1 only", got)
+	}
+}
+
 func TestFilterAlerts_sortsByUpdated(t *testing.T) {
 	old := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
 	mid := time.Date(2026, 6, 15, 8, 0, 0, 0, time.UTC)

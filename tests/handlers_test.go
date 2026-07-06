@@ -82,6 +82,35 @@ func TestHandleAlertsPage_GET(t *testing.T) {
 	}
 }
 
+func TestHandleAlertsPage_namespaceRanksRespectFilters(t *testing.T) {
+	s := testServer(t)
+	ctx := context.Background()
+	for _, a := range []kcontext.Alert{
+		{Status: "firing", Labels: map[string]string{"severity": "critical", "alertname": "CritA", "namespace": "kube-system"}},
+		{Status: "firing", Labels: map[string]string{"severity": "warning", "alertname": "WarnB", "namespace": "openshift-monitoring"}},
+		{Status: "firing", Labels: map[string]string{"severity": "warning", "alertname": "WarnC", "namespace": "openshift-monitoring"}},
+	} {
+		if err := s.Store().Save(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?severity=critical", nil)
+	rec := httptest.NewRecorder()
+	s.HandleAlertsPage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Count(body, "kube-system") < 1 {
+		t.Error("sidebar should include kube-system for critical alerts")
+	}
+	if strings.Contains(body, "openshift-monitoring") {
+		t.Error("sidebar should not include openshift-monitoring when filtered to critical only")
+	}
+}
+
 func TestHandleAlertsPage_methodNotAllowed(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
