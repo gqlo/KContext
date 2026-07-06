@@ -104,20 +104,22 @@ Polling is **enabled by default** against `https://localhost:9094`. KContext sta
 Every `ALERTMANAGER_POLL_INTERVAL` (default **10s**), KContext calls:
 
 ```
-GET {ALERTMANAGER_URL}/api/v2/alerts?active=true&silenced=false&inhibited=false
+GET {ALERTMANAGER_URL}/api/v2/alerts?active=true&silenced=true&inhibited=true&unprocessed=true
 Authorization: Bearer {token}   # ALERTMANAGER_TOKEN, ALERTMANAGER_TOKEN_FILE, or oc whoami -t
 ```
+
+This uses Alertmanager’s default inclusive filters so **all alerts currently held in Alertmanager** are returned (firing, silenced, inhibited, and unprocessed). Alertmanager still drops resolved alerts after `resolve_timeout` (~5 minutes) — this is not long-term history.
 
 Try it manually (with port-forward running):
 
 ```bash
 curl -sk -H "Authorization: Bearer $(oc whoami -t)" \
-  'https://localhost:9094/api/v2/alerts?active=true&silenced=false&inhibited=false' | jq .
+  'https://localhost:9094/api/v2/alerts?active=true&silenced=true&inhibited=true&unprocessed=true' | jq .
 ```
 
 ### Example response
 
-Alertmanager returns a **JSON array** of active alerts. Each element looks like this (OpenShift / Prometheus example):
+Alertmanager returns a **JSON array** of alerts. Each element looks like this (OpenShift / Prometheus example):
 
 ```json
 [
@@ -178,9 +180,10 @@ Alertmanager returns a **JSON array** of active alerts. Each element looks like 
 | `fingerprint` | Deduplication — one stored row per unique alert instance |
 | `labels` | Alert name, severity, namespace, pod, etc. on the dashboard |
 | `annotations` | Summary, description, `runbook_url` link |
-| `status.state` | Part of the API response (`active`, `suppressed`, …); polled alerts are stored as `firing` |
-| `startsAt` / `endsAt` | Parsed but not shown on dashboard (KContext uses `received_at` instead) |
-| `receivers`, `generatorURL`, `updatedAt` | Ignored |
+| `status.state` | Mapped to stored status: `active`/`unprocessed` → `firing`, `suppressed` → `suppressed`, past `endsAt` → `resolved` |
+| `startsAt` / `endsAt` | Shown on alert detail page only |
+| `updatedAt` | Dashboard **Updated at** column (falls back to `received_at` when missing) |
+| `receivers`, `generatorURL` | Ignored |
 
 When an alert disappears from this list on the next poll, KContext records a `resolved` entry using the cached labels and annotations from the last time it was seen.
 
@@ -189,7 +192,7 @@ When an alert disappears from this list on the next poll, KContext records a `re
 For each returned alert:
 
 1. Read `fingerprint`, `labels`, and `annotations`
-2. Store as status `firing` (the `active=true` query already limits to active alerts)
+2. Map Alertmanager state to stored status (`firing`, `suppressed`, or `resolved` when `endsAt` is in the past)
 3. Pass to `AlertStore.SyncPolled`, which:
    - **New alert** (unknown fingerprint) → append to Redis with `source: poll`
    - **Unchanged alert** (same fingerprint + status) → skip (no duplicate row)
@@ -242,7 +245,8 @@ receivers:
 
 ### Display
 
-- Table columns: received time, status, alert name, namespace, severity, source, summary, runbook link
+- Table columns: updated at, status, alert name, namespace, severity, source, summary, runbook link
+- Rows sorted by **Updated at** (newest first), then by alert ID
 - Row background color reflects severity for firing alerts (critical / warning / info)
 - Namespace values are clickable — filter to that namespace
 - Runbook links come from `annotations.runbook_url` (or `runbook`)

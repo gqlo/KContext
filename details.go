@@ -110,11 +110,10 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
         <tr><th>Severity</th><td>{{index .Alert.Labels "severity"}}</td></tr>
         <tr><th>Namespace</th><td>{{.Alert.Namespace}}</td></tr>
         <tr><th>Source</th><td>{{.Alert.Source}}</td></tr>
-        <tr><th>Started</th><td><time class="relative-time" datetime="{{fmtISO .Alert.DisplayTime}}" title="{{fmtTime .Alert.DisplayTime}}">{{fmtRelative .Alert.DisplayTime}}</time></td></tr>
+        <tr><th>Updated at</th><td><time class="relative-time" datetime="{{fmtISO .Alert.UpdatedDisplayTime}}" title="{{fmtTime .Alert.UpdatedDisplayTime}}">{{fmtRelative .Alert.UpdatedDisplayTime}}</time></td></tr>
         <tr><th>Received by KContext</th><td>{{fmtTime .Alert.ReceivedAt}}</td></tr>
         <tr><th>Starts at</th><td>{{fmtTime .Alert.StartsAt}}</td></tr>
         <tr><th>Ends at</th><td>{{fmtTime .Alert.EndsAt}}</td></tr>
-        {{if not .Alert.UpdatedAt.IsZero}}<tr><th>Updated at</th><td>{{fmtTime .Alert.UpdatedAt}}</td></tr>{{end}}
         <tr><th>Fingerprint</th><td class="mono">{{.Alert.Fingerprint}}</td></tr>
         <tr><th>ID</th><td class="mono">{{.Alert.ID}}</td></tr>
       </table>

@@ -291,7 +291,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     <table>
       <thead>
         <tr>
-          <th>Started</th>
+          <th>Updated at</th>
           <th>Status</th>
           <th>Alert</th>
           <th>Namespace</th>
@@ -304,7 +304,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       <tbody>
         {{range .Alerts}}
         <tr class="{{.RowClass}}">
-          <td><time class="relative-time" datetime="{{fmtISO .DisplayTime}}" title="{{fmtTime .DisplayTime}}">{{fmtRelative .DisplayTime}}</time></td>
+          <td><time class="relative-time" datetime="{{fmtISO .UpdatedDisplayTime}}" title="{{fmtTime .UpdatedDisplayTime}}">{{fmtRelative .UpdatedDisplayTime}}</time></td>
           <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
           <td>
             <a class="alert-link" href="{{$.AlertDetailLink .ID}}"><strong>{{index .Labels "alertname"}}</strong></a>

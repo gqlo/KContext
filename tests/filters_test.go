@@ -172,6 +172,27 @@ func TestFilterAlerts(t *testing.T) {
 	}
 }
 
+func TestFilterAlerts_sortsByUpdated(t *testing.T) {
+	old := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	mid := time.Date(2026, 6, 15, 8, 0, 0, 0, time.UTC)
+	new := time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC)
+
+	alerts := []kcontext.StoredAlert{
+		{ID: "oldest", ReceivedAt: old, UpdatedAt: old},
+		{ID: "newest", ReceivedAt: new, UpdatedAt: new},
+		{ID: "middle", ReceivedAt: mid, UpdatedAt: mid},
+	}
+
+	got := kcontext.FilterAlerts(alerts, kcontext.AlertFilters{})
+	if len(got) != 3 {
+		t.Fatalf("FilterAlerts() len = %d, want 3", len(got))
+	}
+	if got[0].ID != "newest" || got[1].ID != "middle" || got[2].ID != "oldest" {
+		t.Fatalf("FilterAlerts() order = [%s %s %s], want [newest middle oldest]",
+			got[0].ID, got[1].ID, got[2].ID)
+	}
+}
+
 func TestPaginateAlerts(t *testing.T) {
 	alerts := make([]kcontext.StoredAlert, 55)
 	for i := range alerts {
@@ -194,16 +215,16 @@ func TestPaginateAlerts(t *testing.T) {
 	}
 }
 
-func TestStoredAlert_DisplayTime(t *testing.T) {
-	start := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+func TestStoredAlert_UpdatedDisplayTime(t *testing.T) {
+	updated := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
 	received := time.Date(2026, 6, 29, 15, 0, 0, 0, time.UTC)
-	a := kcontext.StoredAlert{ReceivedAt: received, StartsAt: start}
-	if !a.DisplayTime().Equal(start) {
-		t.Fatalf("DisplayTime with startsAt = %v, want %v", a.DisplayTime(), start)
+	a := kcontext.StoredAlert{ReceivedAt: received, UpdatedAt: updated}
+	if !a.UpdatedDisplayTime().Equal(updated) {
+		t.Fatalf("UpdatedDisplayTime with updatedAt = %v, want %v", a.UpdatedDisplayTime(), updated)
 	}
 	b := kcontext.StoredAlert{ReceivedAt: received}
-	if !b.DisplayTime().Equal(received) {
-		t.Fatalf("DisplayTime without startsAt = %v, want %v", b.DisplayTime(), received)
+	if !b.UpdatedDisplayTime().Equal(received) {
+		t.Fatalf("UpdatedDisplayTime without updatedAt = %v, want %v", b.UpdatedDisplayTime(), received)
 	}
 }
 

@@ -96,11 +96,11 @@ func (a StoredAlert) Severity() string {
 	return strings.ToLower(strings.TrimSpace(a.Labels["severity"]))
 }
 
-// DisplayTime returns the best timestamp for dashboard display: alert startsAt when
-// available, otherwise when KContext received/stored the alert.
-func (a StoredAlert) DisplayTime() time.Time {
-	if !a.StartsAt.IsZero() && a.StartsAt.Year() >= 1970 {
-		return a.StartsAt.UTC()
+// UpdatedDisplayTime returns updatedAt from Alertmanager when available,
+// otherwise when KContext received/stored the alert.
+func (a StoredAlert) UpdatedDisplayTime() time.Time {
+	if !a.UpdatedAt.IsZero() && a.UpdatedAt.Year() >= 1970 {
+		return a.UpdatedAt.UTC()
 	}
 	if !a.ReceivedAt.IsZero() && a.ReceivedAt.Year() >= 1970 {
 		return a.ReceivedAt.UTC()
@@ -211,6 +211,18 @@ func (s *AlertStore) SyncPolled(ctx context.Context, alerts []PolledAlert) (newC
 
 	for _, fp := range known {
 		if _, stillActive := active[fp]; stillActive {
+			continue
+		}
+
+		prev, _ := s.rdb.HGet(ctx, fpStateKey, fp).Result()
+		if prev == "resolved" {
+			pipe := s.rdb.Pipeline()
+			pipe.HDel(ctx, fpStateKey, fp)
+			pipe.HDel(ctx, fpMetaKey, fp)
+			pipe.SRem(ctx, activeFingerprints, fp)
+			if _, err := pipe.Exec(ctx); err != nil {
+				return newCount, resolvedCount, err
+			}
 			continue
 		}
 

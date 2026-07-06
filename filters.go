@@ -246,7 +246,7 @@ func (f AlertFilters) Match(a StoredAlert) bool {
 	if f.Alertname != "" && !strings.Contains(strings.ToLower(a.Labels["alertname"]), strings.ToLower(f.Alertname)) {
 		return false
 	}
-	return f.matchDate(a.DisplayTime())
+	return f.matchDate(a.UpdatedDisplayTime())
 }
 
 func (f AlertFilters) matchDate(received time.Time) bool {
@@ -355,7 +355,19 @@ func FilterAlerts(alerts []StoredAlert, f AlertFilters) []StoredAlert {
 			out = append(out, a)
 		}
 	}
+	sortAlertsByUpdated(out)
 	return out
+}
+
+func sortAlertsByUpdated(alerts []StoredAlert) {
+	sort.SliceStable(alerts, func(i, j int) bool {
+		ti := alerts[i].UpdatedDisplayTime()
+		tj := alerts[j].UpdatedDisplayTime()
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return alerts[i].ID > alerts[j].ID
+	})
 }
 
 func PaginateAlerts(alerts []StoredAlert, page, perPage int) (pageAlerts []StoredAlert, totalPages, pageNum int) {

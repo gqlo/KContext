@@ -85,6 +85,17 @@ func TestOcWhoamiToken_fromFakeOc(t *testing.T) {
 	}
 }
 
+func TestAlertmanagerAlertsURL(t *testing.T) {
+	got, err := kcontext.AlertmanagerAlertsURL("https://localhost:9094")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://localhost:9094/api/v2/alerts?active=true&inhibited=true&silenced=true&unprocessed=true"
+	if got != want {
+		t.Fatalf("AlertmanagerAlertsURL() = %q, want %q", got, want)
+	}
+}
+
 func TestIsLocalhostAlertmanagerURL(t *testing.T) {
 	tests := []struct {
 		url  string

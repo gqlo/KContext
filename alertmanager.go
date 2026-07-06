@@ -178,18 +178,13 @@ func runOcCommand(ctx context.Context, name string, args ...string) (string, err
 	return strings.TrimSpace(string(out)), nil
 }
 
-func (c *alertmanagerClient) FetchActive(ctx context.Context) ([]amAlert, error) {
-	u, err := url.Parse(c.baseURL + "/api/v2/alerts")
+func (c *alertmanagerClient) FetchAlerts(ctx context.Context) ([]amAlert, error) {
+	u, err := alertmanagerAlertsURL(c.baseURL)
 	if err != nil {
 		return nil, err
 	}
-	q := u.Query()
-	q.Set("active", "true")
-	q.Set("silenced", "false")
-	q.Set("inhibited", "false")
-	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +208,33 @@ func (c *alertmanagerClient) FetchActive(ctx context.Context) ([]amAlert, error)
 		return nil, err
 	}
 	return alerts, nil
+}
+
+// alertmanagerAlertsURL builds the Alertmanager alerts API URL with default
+// inclusive filters (active, silenced, inhibited, unprocessed) so all alerts
+// currently held in Alertmanager are returned.
+func alertmanagerAlertsURL(baseURL string) (string, error) {
+	u, err := url.Parse(baseURL + "/api/v2/alerts")
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("active", "true")
+	q.Set("silenced", "true")
+	q.Set("inhibited", "true")
+	q.Set("unprocessed", "true")
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func polledAlertStatus(a amAlert) string {
+	if a.Status.State == "suppressed" {
+		return "suppressed"
+	}
+	if !a.EndsAt.IsZero() && a.EndsAt.Year() >= 1970 && !a.EndsAt.After(time.Now().UTC()) {
+		return "resolved"
+	}
+	return "firing"
 }
 
 func parsePollInterval() time.Duration {
@@ -242,7 +264,7 @@ func startAlertmanagerPoller(store *AlertStore, client *alertmanagerClient) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
-		alerts, err := client.FetchActive(ctx)
+		alerts, err := client.FetchAlerts(ctx)
 		if err != nil {
 			log.Printf("alertmanager poll: %v", err)
 			return
@@ -253,10 +275,7 @@ func startAlertmanagerPoller(store *AlertStore, client *alertmanagerClient) {
 			if a.Fingerprint == "" {
 				continue
 			}
-			status := "firing"
-			if a.Status.State == "suppressed" {
-				status = "suppressed"
-			}
+			status := polledAlertStatus(a)
 			polled = append(polled, PolledAlert{
 				Fingerprint: a.Fingerprint,
 				Alert: Alert{
@@ -286,6 +305,11 @@ func startAlertmanagerPoller(store *AlertStore, client *alertmanagerClient) {
 	for range ticker.C {
 		poll()
 	}
+}
+
+// AlertmanagerAlertsURL returns the alerts API URL used for polling.
+func AlertmanagerAlertsURL(baseURL string) (string, error) {
+	return alertmanagerAlertsURL(baseURL)
 }
 
 // AlertmanagerPollingEnabled reports whether Alertmanager polling is active.

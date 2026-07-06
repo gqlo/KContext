@@ -157,6 +157,49 @@ func TestSyncPolled_resolvedWhenMissing(t *testing.T) {
 	}
 }
 
+func TestSyncPolled_noDuplicateResolvedWhenAlreadyResolved(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	fp := "deadbeef"
+	firing := []kcontext.PolledAlert{{
+		Fingerprint: fp,
+		Alert: kcontext.Alert{
+			Status:      "firing",
+			Fingerprint: fp,
+			Labels:      map[string]string{"alertname": "OOMKill"},
+		},
+	}}
+	resolved := []kcontext.PolledAlert{{
+		Fingerprint: fp,
+		Alert: kcontext.Alert{
+			Status:      "resolved",
+			Fingerprint: fp,
+			Labels:      map[string]string{"alertname": "OOMKill"},
+		},
+	}}
+
+	if _, _, err := s.SyncPolled(ctx, firing); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.SyncPolled(ctx, resolved); err != nil {
+		t.Fatal(err)
+	}
+
+	newCount, resolvedCount, err := s.SyncPolled(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newCount != 0 || resolvedCount != 0 {
+		t.Fatalf("already-resolved cleanup: new=%d resolved=%d, want 0/0", newCount, resolvedCount)
+	}
+
+	alerts, _ := s.List(ctx, 10)
+	if len(alerts) != 2 {
+		t.Fatalf("want firing + resolved entries, got %d", len(alerts))
+	}
+}
+
 func TestNewStoredFromAlert(t *testing.T) {
 	start := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	stored := kcontext.NewStoredFromAlert(kcontext.Alert{
