@@ -60,6 +60,7 @@ func TestAlertFilters_Match(t *testing.T) {
 		{"status match", kcontext.AlertFilters{Status: "firing"}, true},
 		{"source match", kcontext.AlertFilters{Source: "webhook"}, true},
 		{"namespace match", kcontext.AlertFilters{Namespace: "kube-system"}, true},
+		{"namespace none match empty", kcontext.AlertFilters{Namespace: kcontext.NoneNamespaceFilter}, false},
 		{"alertname substring", kcontext.AlertFilters{Alertname: "highcpu"}, true},
 		{"alertname miss", kcontext.AlertFilters{Alertname: "disk"}, false},
 		{"7d range", kcontext.AlertFilters{DateRange: "7d"}, true},
@@ -71,6 +72,14 @@ func TestAlertFilters_Match(t *testing.T) {
 				t.Errorf("Match() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+
+	noNS := kcontext.StoredAlert{Labels: map[string]string{"alertname": "ClusterAlert"}}
+	if !(kcontext.AlertFilters{Namespace: kcontext.NoneNamespaceFilter}).Match(noNS) {
+		t.Error("none namespace filter should match alert without namespace")
+	}
+	if (kcontext.AlertFilters{Namespace: kcontext.NoneNamespaceFilter}).Match(alert) {
+		t.Error("none namespace filter should not match alert with namespace")
 	}
 }
 
@@ -169,6 +178,30 @@ func TestFilterAlerts(t *testing.T) {
 	got := kcontext.FilterAlerts(alerts, kcontext.AlertFilters{Severity: "critical"})
 	if len(got) != 1 || got[0].ID != "1" {
 		t.Fatalf("FilterAlerts() = %+v", got)
+	}
+}
+
+func TestRankAlertsByNamespace(t *testing.T) {
+	now := time.Now()
+	alerts := []kcontext.StoredAlert{
+		sampleAlert("1", "critical", "firing", "webhook", "kube-system", "A", now),
+		sampleAlert("2", "warning", "firing", "webhook", "openshift-monitoring", "B", now),
+		sampleAlert("3", "warning", "firing", "webhook", "openshift-monitoring", "C", now),
+		sampleAlert("4", "info", "firing", "webhook", "", "D", now),
+	}
+
+	got := kcontext.RankAlertsByNamespace(alerts)
+	if len(got) != 3 {
+		t.Fatalf("RankAlertsByNamespace() len = %d, want 3", len(got))
+	}
+	if got[0].Namespace != "openshift-monitoring" || got[0].Count != 2 {
+		t.Fatalf("first rank = %+v, want openshift-monitoring:2", got[0])
+	}
+	if got[1].Namespace != "" || got[1].Count != 1 {
+		t.Fatalf("second rank = %+v, want empty namespace:1", got[1])
+	}
+	if got[2].Namespace != "kube-system" || got[2].Count != 1 {
+		t.Fatalf("third rank = %+v, want kube-system:1", got[2])
 	}
 }
 
@@ -282,6 +315,21 @@ func TestNamespacesForFilter_includesSelected(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected selected namespace appended, got %v", got)
 	}
+	got = kcontext.NamespacesForFilter(alerts, kcontext.NoneNamespaceFilter)
+	if len(got) != 1 || got[0] != "a" {
+		t.Fatalf("none filter should not append sentinel, got %v", got)
+	}
+}
+
+func TestAlertsHaveEmptyNamespace(t *testing.T) {
+	with := []kcontext.StoredAlert{{Labels: map[string]string{"namespace": "a"}}}
+	if kcontext.AlertsHaveEmptyNamespace(with) {
+		t.Error("expected false when all alerts have namespace")
+	}
+	mixed := append(with, kcontext.StoredAlert{Labels: map[string]string{"alertname": "x"}})
+	if !kcontext.AlertsHaveEmptyNamespace(mixed) {
+		t.Error("expected true when some alerts lack namespace")
+	}
 }
 
 func TestAlertsPageData_links(t *testing.T) {
@@ -300,5 +348,9 @@ func TestAlertsPageData_links(t *testing.T) {
 	}
 	if (kcontext.AlertsPageData{Page: 1}).PrevPageLink() != "" {
 		t.Error("page 1 should have empty prev link")
+	}
+	none := kcontext.AlertsPageData{}.NoneNamespaceLink()
+	if !strings.Contains(none, "namespace=__none__") {
+		t.Errorf("NoneNamespaceLink() = %q", none)
 	}
 }

@@ -47,7 +47,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       line-height: 1.5;
     }
     header {
-      padding: 1.5rem 2rem;
+      padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border);
       background: var(--card);
       box-shadow: 0 1px 0 rgba(27,31,36,0.04);
@@ -61,14 +61,14 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     header p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.875rem; }
     .page-body {
       display: flex;
-      gap: 1.5rem;
-      align-items: flex-start;
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 1.5rem 2rem;
+      gap: 1.25rem;
+      align-items: stretch;
+      width: 100%;
+      min-height: calc(100vh - 4.5rem);
+      padding: 1rem 1.5rem 1.5rem;
     }
     .sidebar {
-      width: 220px;
+      width: 280px;
       flex-shrink: 0;
       background: var(--card);
       border: 1px solid var(--border);
@@ -76,6 +76,9 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       padding: 1rem 1.15rem;
       position: sticky;
       top: 1rem;
+      align-self: flex-start;
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
       box-shadow: 0 1px 3px rgba(27,31,36,0.06);
     }
     .sidebar h2 {
@@ -97,8 +100,43 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     }
     .meta-list dt:first-child { margin-top: 0; }
     .meta-list dd { margin: 0.2rem 0 0; font-size: 0.9375rem; font-weight: 600; }
-    .main-col { flex: 1; min-width: 0; }
+    .sidebar-section { margin-top: 1.25rem; }
+    .sidebar-section h2 {
+      margin: 0 0 0.65rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .sidebar-table-wrap { max-height: none; }
+    .sidebar-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+    }
+    .sidebar-table th,
+    .sidebar-table td {
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .sidebar-table th {
+      color: var(--muted);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      text-align: left;
+    }
+    .sidebar-table th.count,
+    .sidebar-table td.count { text-align: right; white-space: nowrap; }
+    .sidebar-table tbody tr:last-child td { border-bottom: none; }
+    .sidebar-table a { color: var(--link); text-decoration: none; }
+    .sidebar-table a:hover { text-decoration: underline; }
+    .main-col { flex: 1; min-width: 0; width: 100%; }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
+    .alerts-table-wrap { width: 100%; overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 0.875rem; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
     th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
     th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; background: #f6f8fa; }
@@ -125,7 +163,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     .severity-critical { color: var(--critical); font-weight: 600; }
     .severity-warning { color: var(--warning); font-weight: 600; }
     .severity-info { color: var(--info); font-weight: 600; }
-    .summary { max-width: 28rem; }
+    .summary { min-width: 12rem; }
     .labels { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
     time { white-space: nowrap; color: var(--muted); font-size: 0.8125rem; }
     .source { color: var(--muted); font-size: 0.75rem; }
@@ -134,7 +172,8 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       flex-wrap: wrap;
       gap: 0.75rem;
       align-items: flex-end;
-      margin-bottom: 1.5rem;
+      width: 100%;
+      margin-bottom: 1.25rem;
       padding: 1rem;
       background: var(--card);
       border: 1px solid var(--border);
@@ -260,6 +299,29 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         <dt>ODF version</dt>
         <dd>{{if .Cluster.ODFVersion}}{{.Cluster.ODFVersion}}{{else}}Not installed{{end}}</dd>
       </dl>
+      {{if .NamespaceRanks}}
+      <div class="sidebar-section">
+        <h2>Alerts by namespace</h2>
+        <div class="sidebar-table-wrap">
+          <table class="sidebar-table">
+            <thead>
+              <tr>
+                <th>Namespace</th>
+                <th class="count">Alerts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .NamespaceRanks}}
+              <tr>
+                <td>{{if .Namespace}}<a class="namespace-link {{if eq $.Filters.Namespace .Namespace}}selected{{end}}" href="{{$.NamespaceLink .Namespace}}">{{.Namespace}}</a>{{else}}<a class="namespace-link {{if $.Filters.NamespaceIsNone}}selected{{end}}" href="{{$.NoneNamespaceLink}}">(none)</a>{{end}}</td>
+                <td class="count">{{.Count}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {{end}}
     </aside>
     <div class="main-col">
     <form class="filters" method="get" action="/">
@@ -327,6 +389,9 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         <label for="namespace">Namespace</label>
         <select id="namespace" name="namespace">
           <option value="">All</option>
+          {{if .HasEmptyNamespaceAlerts}}
+          <option value="{{$.Filters.NoneNamespaceFilterValue}}" {{if $.Filters.NamespaceIsNone}}selected{{end}}>(none)</option>
+          {{end}}
           {{range .Namespaces}}
           <option value="{{.}}" {{if eq $.Filters.Namespace .}}selected{{end}}>{{.}}</option>
           {{end}}
@@ -348,6 +413,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       {{if .NextPageLink}}<a href="{{.NextPageLink}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
     </nav>
     {{end}}
+    <div class="alerts-table-wrap">
     <table>
       <thead>
         <tr>
@@ -379,6 +445,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         {{end}}
       </tbody>
     </table>
+    </div>
     {{if gt .TotalPages 1}}
     <nav class="pagination">
       {{if .PrevPageLink}}<a href="{{.PrevPageLink}}">← Prev</a>{{else}}<span class="disabled">← Prev</span>{{end}}
@@ -558,17 +625,19 @@ func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 
 	var buf bytes.Buffer
 	if err := alertsTemplate.Execute(&buf, AlertsPageData{
-		Alerts:     pageAlerts,
-		Count:      len(pageAlerts),
-		Filtered:   len(alerts),
-		Total:      len(all),
-		Filters:    filters,
-		Namespaces: NamespacesForFilter(all, filters.Namespace),
-		Page:       page,
-		TotalPages: totalPages,
-		PageStart:  pageStart,
-		PageEnd:    pageEnd,
-		Cluster:    s.cachedClusterMeta(),
+		Alerts:                  pageAlerts,
+		Count:                   len(pageAlerts),
+		Filtered:                len(alerts),
+		Total:                   len(all),
+		Filters:                 filters,
+		Namespaces:              NamespacesForFilter(all, filters.Namespace),
+		NamespaceRanks:          RankAlertsByNamespace(all),
+		HasEmptyNamespaceAlerts: AlertsHaveEmptyNamespace(all),
+		Page:                    page,
+		TotalPages:              totalPages,
+		PageStart:               pageStart,
+		PageEnd:                 pageEnd,
+		Cluster:                 s.cachedClusterMeta(),
 	}); err != nil {
 		log.Printf("render alerts: %v", err)
 		http.Error(w, "failed to render page", http.StatusInternalServerError)

@@ -12,6 +12,9 @@ import (
 const defaultAlertsPerPage = 200
 const maxAlertsPerPage = 200
 
+// NoneNamespaceFilter is the query value for alerts with no namespace label.
+const NoneNamespaceFilter = "__none__"
+
 type AlertFilters struct {
 	Severity  string
 	Status    string
@@ -28,17 +31,25 @@ type AlertFilters struct {
 }
 
 type AlertsPageData struct {
-	Alerts     []StoredAlert
-	Count      int
-	Filtered   int
-	Total      int
-	Filters    AlertFilters
-	Namespaces []string
-	Page       int
-	TotalPages int
-	PageStart  int
-	PageEnd    int
-	Cluster    ClusterMeta
+	Alerts                  []StoredAlert
+	Count                   int
+	Filtered                int
+	Total                   int
+	Filters                 AlertFilters
+	Namespaces              []string
+	NamespaceRanks          []NamespaceAlertRank
+	HasEmptyNamespaceAlerts bool
+	Page                    int
+	TotalPages              int
+	PageStart               int
+	PageEnd                 int
+	Cluster                 ClusterMeta
+}
+
+// NamespaceAlertRank is alert count for one namespace, sorted by count in RankAlertsByNamespace.
+type NamespaceAlertRank struct {
+	Namespace string
+	Count     int
 }
 
 func (d AlertsPageData) PageLink(page int) string {
@@ -66,6 +77,18 @@ func (d AlertsPageData) NamespaceLink(ns string) string {
 	f.Namespace = ns
 	f.Page = 1
 	return "/?" + f.Encode()
+}
+
+func (d AlertsPageData) NoneNamespaceLink() string {
+	return d.NamespaceLink(NoneNamespaceFilter)
+}
+
+func (f AlertFilters) NamespaceIsNone() bool {
+	return f.Namespace == NoneNamespaceFilter
+}
+
+func (AlertFilters) NoneNamespaceFilterValue() string {
+	return NoneNamespaceFilter
 }
 
 func (d AlertsPageData) AlertDetailLink(id string) string {
@@ -132,7 +155,7 @@ func UniqueNamespaces(alerts []StoredAlert) []string {
 
 func NamespacesForFilter(alerts []StoredAlert, selected string) []string {
 	ns := UniqueNamespaces(alerts)
-	if selected == "" {
+	if selected == "" || selected == NoneNamespaceFilter {
 		return ns
 	}
 	for _, n := range ns {
@@ -143,6 +166,35 @@ func NamespacesForFilter(alerts []StoredAlert, selected string) []string {
 	ns = append(ns, selected)
 	sort.Strings(ns)
 	return ns
+}
+
+func AlertsHaveEmptyNamespace(alerts []StoredAlert) bool {
+	for _, a := range alerts {
+		if a.Namespace() == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func RankAlertsByNamespace(alerts []StoredAlert) []NamespaceAlertRank {
+	counts := make(map[string]int)
+	for _, a := range alerts {
+		counts[a.Namespace()]++
+	}
+
+	ranks := make([]NamespaceAlertRank, 0, len(counts))
+	for ns, count := range counts {
+		ranks = append(ranks, NamespaceAlertRank{Namespace: ns, Count: count})
+	}
+
+	sort.Slice(ranks, func(i, j int) bool {
+		if ranks[i].Count != ranks[j].Count {
+			return ranks[i].Count > ranks[j].Count
+		}
+		return ranks[i].Namespace < ranks[j].Namespace
+	})
+	return ranks
 }
 
 func ParseAlertFilters(r *http.Request) AlertFilters {
@@ -241,8 +293,14 @@ func (f AlertFilters) Match(a StoredAlert) bool {
 	if f.Source != "" && !strings.EqualFold(a.Source, f.Source) {
 		return false
 	}
-	if f.Namespace != "" && !strings.EqualFold(a.Namespace(), f.Namespace) {
-		return false
+	if f.Namespace != "" {
+		if f.Namespace == NoneNamespaceFilter {
+			if a.Namespace() != "" {
+				return false
+			}
+		} else if !strings.EqualFold(a.Namespace(), f.Namespace) {
+			return false
+		}
 	}
 	if f.Alertname != "" && !strings.Contains(strings.ToLower(a.Labels["alertname"]), strings.ToLower(f.Alertname)) {
 		return false

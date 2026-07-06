@@ -50,7 +50,7 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
     header h1 a { color: inherit; text-decoration: none; }
     header h1 a:hover { color: var(--link); }
     header p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
-    main { padding: 1.5rem 2rem; max-width: 960px; margin: 0 auto; }
+    main { padding: 1rem 1.5rem 1.5rem; width: 100%; max-width: none; margin: 0; }
     .back { display: inline-block; margin-bottom: 1rem; color: var(--link); text-decoration: none; font-size: 0.875rem; }
     .back:hover { text-decoration: underline; }
     .panel {
