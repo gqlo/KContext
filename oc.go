@@ -6,7 +6,26 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
+
+var (
+	clusterAuthMu     sync.RWMutex
+	clusterAuthToken  string
+)
+
+// SetClusterAuthToken stores the bearer token used for oc cluster queries.
+func SetClusterAuthToken(token string) {
+	clusterAuthMu.Lock()
+	clusterAuthToken = strings.TrimSpace(token)
+	clusterAuthMu.Unlock()
+}
+
+func clusterAuthTokenValue() string {
+	clusterAuthMu.RLock()
+	defer clusterAuthMu.RUnlock()
+	return clusterAuthToken
+}
 
 func resolveOcBinary() string {
 	if p, err := exec.LookPath("oc"); err == nil {
@@ -42,4 +61,37 @@ func runOcCommand(ctx context.Context, name string, args ...string) (string, err
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func shellQuoteArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// runOcLoggedIn runs oc with the current environment, falling back to a login
+// shell so KUBECONFIG from interactive profiles is available.
+func runOcLoggedIn(ctx context.Context, args ...string) (string, error) {
+	oc := resolveOcBinary()
+	if oc == "" {
+		return "", fmt.Errorf("oc binary not found")
+	}
+
+	if token := clusterAuthTokenValue(); token != "" {
+		if out, err := runOcCommand(ctx, oc, append([]string{"--token=" + token}, args...)...); err == nil {
+			return out, nil
+		}
+	}
+
+	if out, err := runOcCommand(ctx, oc, args...); err == nil {
+		return out, nil
+	}
+
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuoteArg(arg)
+	}
+	tokenPrefix := ""
+	if token := clusterAuthTokenValue(); token != "" {
+		tokenPrefix = "--token=" + shellQuoteArg(token) + " "
+	}
+	return runOcCommand(ctx, "/bin/bash", "-lc", "oc "+tokenPrefix+strings.Join(quoted, " "))
 }

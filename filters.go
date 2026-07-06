@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-const defaultAlertsPerPage = 2000
-const maxAlertsPerPage = 2000
+const defaultAlertsPerPage = 200
+const maxAlertsPerPage = 200
 
 type AlertFilters struct {
 	Severity  string
@@ -38,6 +38,7 @@ type AlertsPageData struct {
 	TotalPages int
 	PageStart  int
 	PageEnd    int
+	Cluster    ClusterMeta
 }
 
 func (d AlertsPageData) PageLink(page int) string {

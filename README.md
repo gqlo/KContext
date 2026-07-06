@@ -39,7 +39,7 @@ When something fires, operators need more than the alert text. KContext gathers 
 
 - Alertmanager API polling — pulls active alerts from `/api/v2/alerts` on an interval
 - Alertmanager webhook receiver — captures push alerts and stores them in Redis
-- HTML dashboard at `/` — filterable, paginated alert browser (50 per page)
+- HTML dashboard at `/` — filterable, paginated alert browser (200 per page)
 - Optional Slack notifications — daily threaded alert summaries when configured
 
 **Planned:** Log extraction via `oc` / API, event scraping, context bundling, and optional AI analysis pipeline.
@@ -275,6 +275,8 @@ Manifests under `deploy/openshift/`:
 | `serviceaccount.yaml` | ServiceAccount `kcontext` |
 | `clusterrolebinding.yaml` | Grants `cluster-monitoring-view` to the SA |
 | `rolebinding-alertmanager.yaml` | Grants `monitoring-alertmanager-view` in `openshift-monitoring` (required for `/api/v2/alerts` on port 9094) |
+| `clusterrole-cluster-meta.yaml` | Lets the SA list nodes and read cluster version |
+| `role-csv-*.yaml` / `rolebinding-csv-*.yaml` | Lets the SA read CNV/ODF operator CSV versions |
 
 ## Webhook ingest
 
@@ -315,7 +317,7 @@ receivers:
 | `from` / `to` | with `range=custom` — calendar range (`YYYY-MM-DD`, inclusive) |
 | `namespace` | exact namespace name |
 | `alertname` | substring match (press Enter) |
-| `page` | page number (50 alerts per page) |
+| `page` | page number (200 alerts per page) |
 
 Example: `/?range=today&severity=critical&namespace=openshift-monitoring&page=2`
 

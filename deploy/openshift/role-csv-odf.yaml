@@ -1,0 +1,9 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kcontext-csv-read
+  namespace: openshift-storage
+rules:
+  - apiGroups: [operators.coreos.com]
+    resources: [clusterserviceversions]
+    verbs: [get, list]

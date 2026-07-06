@@ -104,13 +104,16 @@ func alertmanagerToken() (token, source string, err error) {
 		if err != nil {
 			return "", "", fmt.Errorf("read ALERTMANAGER_TOKEN_FILE: %w", err)
 		}
-		return strings.TrimSpace(string(b)), "ALERTMANAGER_TOKEN_FILE", nil
+		token := strings.TrimSpace(string(b))
+		SetClusterAuthToken(token)
+		return token, "ALERTMANAGER_TOKEN_FILE", nil
 	}
 
 	token, err = resolveAutoServiceAccountToken()
 	if err != nil {
 		return "", "", err
 	}
+	SetClusterAuthToken(token)
 	return token, "oc create token", nil
 }
 

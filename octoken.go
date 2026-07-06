@@ -125,6 +125,26 @@ func resolveAutoServiceAccountToken() (string, error) {
 	return token, nil
 }
 
+func ensureClusterAuthToken() error {
+	if clusterAuthTokenValue() != "" {
+		return nil
+	}
+	if path := strings.TrimSpace(os.Getenv("ALERTMANAGER_TOKEN_FILE")); path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		SetClusterAuthToken(string(b))
+		return nil
+	}
+	token, err := resolveAutoServiceAccountToken()
+	if err != nil {
+		return err
+	}
+	SetClusterAuthToken(token)
+	return nil
+}
+
 // OpenShiftDeployDir returns the directory passed to oc apply -f for RBAC manifests.
 func OpenShiftDeployDir() string {
 	return saTokenConfigFromEnv().deployDir

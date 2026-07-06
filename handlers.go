@@ -59,7 +59,45 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     }
     header h1 a:hover { color: var(--link); }
     header p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.875rem; }
-    main { padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto; }
+    .page-body {
+      display: flex;
+      gap: 1.5rem;
+      align-items: flex-start;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 1.5rem 2rem;
+    }
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.15rem;
+      position: sticky;
+      top: 1rem;
+      box-shadow: 0 1px 3px rgba(27,31,36,0.06);
+    }
+    .sidebar h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .meta-list { margin: 0; }
+    .meta-list dt {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 0.85rem;
+    }
+    .meta-list dt:first-child { margin-top: 0; }
+    .meta-list dd { margin: 0.2rem 0 0; font-size: 0.9375rem; font-weight: 600; }
+    .main-col { flex: 1; min-width: 0; }
     .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
     table { width: 100%; border-collapse: collapse; font-size: 0.875rem; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
     th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -179,9 +217,10 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       align-items: center;
       justify-content: center;
       gap: 1rem;
-      margin-top: 1.25rem;
+      margin: 1rem 0;
       padding: 0.75rem;
       font-size: 0.875rem;
+      flex-wrap: wrap;
     }
     .pagination a {
       color: var(--link);
@@ -208,7 +247,21 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     <h1><a href="/" title="Clear all filters">KContext</a></h1>
     <p>{{if gt .Filtered 0}}Showing {{.PageStart}}–{{.PageEnd}} of {{.Filtered}} alert(s){{if lt .Filtered .Total}} · {{.Total}} total stored{{end}}{{else}}No alerts match the current filters{{end}} · newest first</p>
   </header>
-  <main>
+  <div class="page-body">
+    <aside class="sidebar">
+      <h2>Cluster</h2>
+      <dl class="meta-list">
+        <dt>Nodes</dt>
+        <dd>{{if .Cluster.NodesDisplay}}{{.Cluster.NodesDisplay}}{{else}}—{{end}}</dd>
+        <dt>OCP version</dt>
+        <dd>{{if .Cluster.OCPVersion}}{{.Cluster.OCPVersion}}{{else}}—{{end}}</dd>
+        <dt>CNV version</dt>
+        <dd>{{if .Cluster.CNVVersion}}{{.Cluster.CNVVersion}}{{else}}Not installed{{end}}</dd>
+        <dt>ODF version</dt>
+        <dd>{{if .Cluster.ODFVersion}}{{.Cluster.ODFVersion}}{{else}}Not installed{{end}}</dd>
+      </dl>
+    </aside>
+    <div class="main-col">
     <form class="filters" method="get" action="/">
       <div class="field">
         <label for="severity">Severity</label>
@@ -288,6 +341,13 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       </div>
     </form>
     {{if .Alerts}}
+    {{if gt .TotalPages 1}}
+    <nav class="pagination">
+      {{if .PrevPageLink}}<a href="{{.PrevPageLink}}">← Prev</a>{{else}}<span class="disabled">← Prev</span>{{end}}
+      <span class="page-info">Page {{.Page}} of {{.TotalPages}}</span>
+      {{if .NextPageLink}}<a href="{{.NextPageLink}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
+    </nav>
+    {{end}}
     <table>
       <thead>
         <tr>
@@ -329,7 +389,8 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     {{else}}
     <p class="empty">{{if .Filters.Active}}No alerts match the current filters.{{else}}No alerts yet. Enable Alertmanager polling or point Alertmanager at <code>/webhook</code>.{{end}}</p>
     {{end}}
-  </main>
+    </div>
+  </div>
   <script>
     (function () {
       var form = document.querySelector('form.filters');
@@ -442,6 +503,10 @@ type Server struct {
 
 	mu          sync.Mutex
 	dailyThread map[string]string
+
+	clusterMetaMu sync.RWMutex
+	clusterMeta   ClusterMeta
+	clusterMetaAt time.Time
 }
 
 // NewServer constructs an HTTP handler bundle for the dashboard and webhook.
@@ -503,6 +568,7 @@ func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 		TotalPages: totalPages,
 		PageStart:  pageStart,
 		PageEnd:    pageEnd,
+		Cluster:    s.cachedClusterMeta(),
 	}); err != nil {
 		log.Printf("render alerts: %v", err)
 		http.Error(w, "failed to render page", http.StatusInternalServerError)
