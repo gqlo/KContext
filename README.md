@@ -105,7 +105,7 @@ Every `ALERTMANAGER_POLL_INTERVAL` (default **10s**), KContext calls:
 
 ```
 GET {ALERTMANAGER_URL}/api/v2/alerts?active=true&silenced=true&inhibited=true&unprocessed=true
-Authorization: Bearer {token}   # ALERTMANAGER_TOKEN, ALERTMANAGER_TOKEN_FILE, or oc whoami -t
+Authorization: Bearer {token}   # minted via oc create token on startup (local), or ALERTMANAGER_TOKEN_FILE (in-cluster)
 ```
 
 This uses Alertmanager’s default inclusive filters so **all alerts currently held in Alertmanager** are returned (firing, silenced, inhibited, and unprocessed). Alertmanager still drops resolved alerts after `resolve_timeout` (~5 minutes) — this is not long-term history.
@@ -113,7 +113,8 @@ This uses Alertmanager’s default inclusive filters so **all alerts currently h
 Try it manually (with port-forward running):
 
 ```bash
-curl -sk -H "Authorization: Bearer $(oc whoami -t)" \
+TOKEN=$(oc create token kcontext -n kcontext --duration=8760h)
+curl -sk -H "Authorization: Bearer $TOKEN" \
   'https://localhost:9094/api/v2/alerts?active=true&silenced=true&inhibited=true&unprocessed=true' | jq .
 ```
 
@@ -215,7 +216,7 @@ export ALERTMANAGER_URL=https://alertmanager-main.openshift-monitoring.svc:9094
 export ALERTMANAGER_TOKEN_FILE=/var/run/secrets/kubernetes.io/serviceaccount/token
 export ALERTMANAGER_TLS_INSECURE=true
 
-# local dev (oc login required; port-forward is started automatically by KContext)
+# local dev (oc login required; RBAC + token minted automatically on each start)
 go run ./cmd/kcontext
 
 # or manage port-forward yourself:
@@ -225,47 +226,46 @@ go run ./cmd/kcontext
 
 The token needs permission to read Alertmanager. On OpenShift 4.15+, `cluster-monitoring-view` alone is **not** enough for the Alertmanager API (`alertmanagers/api`); bind `monitoring-alertmanager-view` in `openshift-monitoring` as well (included in `deploy/openshift/`).
 
-### Dedicated token (local dev)
+### Alertmanager token (local dev)
 
-For local/bastion use, prefer a **dedicated ServiceAccount token** instead of your personal `oc whoami -t` session. KContext reads `ALERTMANAGER_TOKEN` or `ALERTMANAGER_TOKEN_FILE` before falling back to `oc whoami -t`.
+On each startup (when polling is enabled and `ALERTMANAGER_TOKEN_FILE` is unset), KContext automatically:
 
-**One-time RBAC** (requires permission to create ClusterRoleBindings):
+1. Runs `oc apply -f deploy/openshift/` (idempotent RBAC setup)
+2. Runs `oc create token kcontext -n kcontext --duration=8760h`
+3. Uses that bearer token for Alertmanager polling
 
-```bash
-oc apply -f deploy/openshift/
-```
+Requires `oc login` with permission to apply the manifests and create tokens for the `kcontext` ServiceAccount.
 
-**Mint a token and load it into your shell:**
-
-```bash
-eval "$(./deploy/create-local-token.sh)"
-```
-
-Or write the token to a file (mode `0600`):
-
-```bash
-eval "$(./deploy/create-local-token.sh --token-file ~/.config/kcontext/token)"
-```
-
-Script options: `--namespace`, `--serviceaccount`, `--duration` (default `8760h`, one year). Override defaults with `KCONTEXT_NAMESPACE`, `KCONTEXT_SA`, `KCONTEXT_TOKEN_DURATION`.
-
-**Run KContext** (port-forward starts automatically for localhost, or manage it yourself):
+**Run KContext** from the repo root (so `deploy/openshift/` is found), or set `KCONTEXT_DEPLOY_DIR`:
 
 ```bash
 export REDIS_ADDR=localhost:6379
 go run ./cmd/kcontext
 ```
 
-On startup you should see `Alertmanager auth: ALERTMANAGER_TOKEN` (or `ALERTMANAGER_TOKEN_FILE`), not `oc whoami -t`.
+On startup you should see:
 
-**Verify the token** (with port-forward to Alertmanager on 9094):
+```
+Applying OpenShift RBAC from .../deploy/openshift...
+Creating token for serviceaccount/kcontext in kcontext (duration=8760h)...
+Alertmanager auth: oc create token
+```
+
+**In-cluster:** set `ALERTMANAGER_TOKEN_FILE=/var/run/secrets/kubernetes.io/serviceaccount/token` to skip auto-minting.
+
+**Optional manual script:** `./deploy/create-local-token.sh` runs the same steps and prints a token for curl testing (not required before `go run`).
+
+Script options: `--namespace`, `--serviceaccount`, `--duration` (default `8760h`). Env: `KCONTEXT_NAMESPACE`, `KCONTEXT_SA`, `KCONTEXT_TOKEN_DURATION`, `KCONTEXT_DEPLOY_DIR`.
+
+**Verify manually** (with port-forward to Alertmanager on 9094):
 
 ```bash
-curl -sk -H "Authorization: Bearer $ALERTMANAGER_TOKEN" \
+TOKEN=$(oc create token kcontext -n kcontext --duration=8760h)
+curl -sk -H "Authorization: Bearer $TOKEN" \
   'https://localhost:9094/api/v2/alerts' | jq .
 ```
 
-**Token expiry:** `oc create token` issues a time-limited token (default one year). When it expires, polling will fail with 401/403 — re-run `./deploy/create-local-token.sh` to mint a new one. Your cluster may cap maximum duration.
+**Token expiry:** each start mints a fresh token (valid one year by default). Your cluster may cap maximum duration.
 
 Manifests under `deploy/openshift/`:
 
@@ -346,8 +346,11 @@ URL examples: `/?range=custom&days=3` or `/?range=custom&from=2026-06-28&to=2026
 | `ALERTMANAGER_PF_LOCAL_PORT` | no | `9094` | Local port for auto port-forward |
 | `ALERTMANAGER_PF_REMOTE_PORT` | no | `9094` | Remote port for auto port-forward |
 | `ALERTMANAGER_POLL_INTERVAL` | no | `10s` | How often to poll Alertmanager |
-| `ALERTMANAGER_TOKEN` | no | `oc whoami -t` | Bearer token for Alertmanager API; prefer dedicated SA token for local dev (see [Dedicated token](#dedicated-token-local-dev)) |
-| `ALERTMANAGER_TOKEN_FILE` | no | — | Path to token file; checked before `oc whoami -t` fallback |
+| `ALERTMANAGER_TOKEN_FILE` | no | — | Path to bearer token file; when set, skips auto `oc create token` (in-cluster SA) |
+| `KCONTEXT_NAMESPACE` | no | `kcontext` | Namespace for auto token ServiceAccount |
+| `KCONTEXT_SA` | no | `kcontext` | ServiceAccount name for auto token |
+| `KCONTEXT_TOKEN_DURATION` | no | `8760h` | Token lifetime passed to `oc create token` |
+| `KCONTEXT_DEPLOY_DIR` | no | `deploy/openshift` | Path to OpenShift RBAC manifests for `oc apply` |
 | `ALERTMANAGER_TLS_INSECURE` | no | `true` | Skip TLS verification (`false` for proper TLS) |
 | `SLACK_TOKEN` | no | — | Slack bot token (`xoxb-...`) |
 | `SLACK_CHANNEL_ID` | no | — | Target channel ID (`C...`) |

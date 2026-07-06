@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -59,7 +58,7 @@ func newAlertmanagerClient() (*alertmanagerClient, error) {
 	if tokenSource != "" {
 		log.Printf("Alertmanager auth: %s", tokenSource)
 	} else if token == "" {
-		log.Print("WARNING: no Alertmanager token — set ALERTMANAGER_TOKEN, ALERTMANAGER_TOKEN_FILE, or run oc login")
+		log.Print("WARNING: no Alertmanager token")
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -100,82 +99,19 @@ func alertmanagerTLSInsecure() bool {
 }
 
 func alertmanagerToken() (token, source string, err error) {
-	if t := strings.TrimSpace(os.Getenv("ALERTMANAGER_TOKEN")); t != "" {
-		return t, "ALERTMANAGER_TOKEN", nil
-	}
-	if path := os.Getenv("ALERTMANAGER_TOKEN_FILE"); path != "" {
+	if path := strings.TrimSpace(os.Getenv("ALERTMANAGER_TOKEN_FILE")); path != "" {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return "", "", fmt.Errorf("read ALERTMANAGER_TOKEN_FILE: %w", err)
 		}
 		return strings.TrimSpace(string(b)), "ALERTMANAGER_TOKEN_FILE", nil
 	}
-	t, ocErr := ocWhoamiToken()
-	if ocErr != nil {
-		log.Printf("oc whoami -t: %v", ocErr)
-		return "", "", nil
-	}
-	if t != "" {
-		return t, "oc whoami -t", nil
-	}
-	return "", "", nil
-}
 
-func resolveOcBinary() string {
-	if p, err := exec.LookPath("oc"); err == nil {
-		return p
-	}
-	for _, p := range []string{"/usr/bin/oc", "/usr/local/bin/oc", "/bin/oc"} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
-}
-
-func ocWhoamiToken() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if token, err := runOcCommand(ctx, resolveOcBinary(), "whoami", "-t"); err == nil && token != "" {
-		return token, nil
-	} else if err != nil {
-		log.Printf("oc whoami -t (direct): %v", err)
-	}
-
-	// Login shell: picks up PATH/KUBECONFIG from interactive bastion sessions.
-	token, err := runOcCommand(ctx, "/bin/bash", "-lc", "oc whoami -t")
+	token, err = resolveAutoServiceAccountToken()
 	if err != nil {
-		return "", fmt.Errorf("oc whoami -t: %w", err)
+		return "", "", err
 	}
-	if token == "" {
-		return "", fmt.Errorf("oc whoami -t returned empty token (run oc login?)")
-	}
-	return token, nil
-}
-
-func runOcCommand(ctx context.Context, name string, args ...string) (string, error) {
-	if name == "" {
-		return "", fmt.Errorf("oc binary not found")
-	}
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = os.Environ()
-
-	out, err := cmd.Output()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if ee, ok := err.(*exec.ExitError); ok {
-			if stderr := strings.TrimSpace(string(ee.Stderr)); stderr != "" {
-				msg = stderr
-			}
-		}
-		if msg != "" {
-			return "", fmt.Errorf("%v: %s", err, msg)
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return token, "oc create token", nil
 }
 
 func (c *alertmanagerClient) FetchAlerts(ctx context.Context) ([]amAlert, error) {
@@ -325,6 +261,3 @@ func AlertmanagerTLSInsecure() bool { return alertmanagerTLSInsecure() }
 func ResolveAlertmanagerToken() (token, source string, err error) {
 	return alertmanagerToken()
 }
-
-// ResolveOcWhoamiToken runs oc whoami -t.
-func ResolveOcWhoamiToken() (string, error) { return ocWhoamiToken() }

@@ -52,9 +52,15 @@ func TestAlertmanagerTLSInsecure_explicit(t *testing.T) {
 	}
 }
 
-func TestAlertmanagerToken_fromEnv(t *testing.T) {
+func TestAlertmanagerToken_fromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	if err := os.WriteFile(path, []byte("test-bearer-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unsetEnv(t, "ALERTMANAGER_TOKEN")
 	unsetEnv(t, "ALERTMANAGER_TOKEN_FILE")
-	t.Setenv("ALERTMANAGER_TOKEN", "test-bearer-token")
+	t.Setenv("ALERTMANAGER_TOKEN_FILE", path)
 
 	token, source, err := kcontext.ResolveAlertmanagerToken()
 	if err != nil {
@@ -63,25 +69,18 @@ func TestAlertmanagerToken_fromEnv(t *testing.T) {
 	if token != "test-bearer-token" {
 		t.Fatalf("token = %q, want %q", token, "test-bearer-token")
 	}
-	if source != "ALERTMANAGER_TOKEN" {
-		t.Fatalf("source = %q, want ALERTMANAGER_TOKEN", source)
+	if source != "ALERTMANAGER_TOKEN_FILE" {
+		t.Fatalf("source = %q, want ALERTMANAGER_TOKEN_FILE", source)
 	}
 }
 
-func TestOcWhoamiToken_fromFakeOc(t *testing.T) {
-	dir := t.TempDir()
-	ocPath := filepath.Join(dir, "oc")
-	if err := os.WriteFile(ocPath, []byte("#!/bin/sh\necho fake-oc-token\n"), 0o755); err != nil {
-		t.Fatal(err)
+func TestOpenShiftDeployDir_findsRelativePath(t *testing.T) {
+	got := kcontext.OpenShiftDeployDir()
+	if got == "" {
+		t.Fatal("OpenShiftDeployDir() returned empty")
 	}
-	t.Setenv("PATH", dir)
-
-	token, err := kcontext.ResolveOcWhoamiToken()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if token != "fake-oc-token" {
-		t.Fatalf("token = %q, want fake-oc-token", token)
+	if _, err := os.Stat(got); err != nil {
+		t.Fatalf("OpenShiftDeployDir() = %q, stat: %v", got, err)
 	}
 }
 
