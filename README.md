@@ -223,7 +223,58 @@ go run ./cmd/kcontext
 # export ALERTMANAGER_PORT_FORWARD=false
 ```
 
-The token needs permission to read Alertmanager (e.g. `cluster-monitoring-view`).
+The token needs permission to read Alertmanager. On OpenShift 4.15+, `cluster-monitoring-view` alone is **not** enough for the Alertmanager API (`alertmanagers/api`); bind `monitoring-alertmanager-view` in `openshift-monitoring` as well (included in `deploy/openshift/`).
+
+### Dedicated token (local dev)
+
+For local/bastion use, prefer a **dedicated ServiceAccount token** instead of your personal `oc whoami -t` session. KContext reads `ALERTMANAGER_TOKEN` or `ALERTMANAGER_TOKEN_FILE` before falling back to `oc whoami -t`.
+
+**One-time RBAC** (requires permission to create ClusterRoleBindings):
+
+```bash
+oc apply -f deploy/openshift/
+```
+
+**Mint a token and load it into your shell:**
+
+```bash
+eval "$(./deploy/create-local-token.sh)"
+```
+
+Or write the token to a file (mode `0600`):
+
+```bash
+eval "$(./deploy/create-local-token.sh --token-file ~/.config/kcontext/token)"
+```
+
+Script options: `--namespace`, `--serviceaccount`, `--duration` (default `8760h`, one year). Override defaults with `KCONTEXT_NAMESPACE`, `KCONTEXT_SA`, `KCONTEXT_TOKEN_DURATION`.
+
+**Run KContext** (port-forward starts automatically for localhost, or manage it yourself):
+
+```bash
+export REDIS_ADDR=localhost:6379
+go run ./cmd/kcontext
+```
+
+On startup you should see `Alertmanager auth: ALERTMANAGER_TOKEN` (or `ALERTMANAGER_TOKEN_FILE`), not `oc whoami -t`.
+
+**Verify the token** (with port-forward to Alertmanager on 9094):
+
+```bash
+curl -sk -H "Authorization: Bearer $ALERTMANAGER_TOKEN" \
+  'https://localhost:9094/api/v2/alerts' | jq .
+```
+
+**Token expiry:** `oc create token` issues a time-limited token (default one year). When it expires, polling will fail with 401/403 — re-run `./deploy/create-local-token.sh` to mint a new one. Your cluster may cap maximum duration.
+
+Manifests under `deploy/openshift/`:
+
+| File | Purpose |
+|------|---------|
+| `namespace.yaml` | Namespace `kcontext` |
+| `serviceaccount.yaml` | ServiceAccount `kcontext` |
+| `clusterrolebinding.yaml` | Grants `cluster-monitoring-view` to the SA |
+| `rolebinding-alertmanager.yaml` | Grants `monitoring-alertmanager-view` in `openshift-monitoring` (required for `/api/v2/alerts` on port 9094) |
 
 ## Webhook ingest
 
@@ -295,8 +346,8 @@ URL examples: `/?range=custom&days=3` or `/?range=custom&from=2026-06-28&to=2026
 | `ALERTMANAGER_PF_LOCAL_PORT` | no | `9094` | Local port for auto port-forward |
 | `ALERTMANAGER_PF_REMOTE_PORT` | no | `9094` | Remote port for auto port-forward |
 | `ALERTMANAGER_POLL_INTERVAL` | no | `10s` | How often to poll Alertmanager |
-| `ALERTMANAGER_TOKEN` | no | `oc whoami -t` | Bearer token for Alertmanager API |
-| `ALERTMANAGER_TOKEN_FILE` | no | — | Path to token file (overrides token env; e.g. in-cluster SA token) |
+| `ALERTMANAGER_TOKEN` | no | `oc whoami -t` | Bearer token for Alertmanager API; prefer dedicated SA token for local dev (see [Dedicated token](#dedicated-token-local-dev)) |
+| `ALERTMANAGER_TOKEN_FILE` | no | — | Path to token file; checked before `oc whoami -t` fallback |
 | `ALERTMANAGER_TLS_INSECURE` | no | `true` | Skip TLS verification (`false` for proper TLS) |
 | `SLACK_TOKEN` | no | — | Slack bot token (`xoxb-...`) |
 | `SLACK_CHANNEL_ID` | no | — | Target channel ID (`C...`) |
