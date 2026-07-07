@@ -1,7 +1,9 @@
 package kcontext
 
 import (
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 )
@@ -40,8 +42,21 @@ func Run() {
 	http.HandleFunc("/webhook", srv.HandleWebhook)
 
 	log.Printf("KContext listening on %s", addr)
+	log.Printf("Dashboard: %s", dashboardURL(addr))
 	if srv.SlackEnabled() {
 		log.Print("Slack notifications enabled")
 	}
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+func dashboardURL(listenAddr string) string {
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return "http://localhost" + listenAddr
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "localhost"
+	}
+	return fmt.Sprintf("http://%s", net.JoinHostPort(host, port))
 }

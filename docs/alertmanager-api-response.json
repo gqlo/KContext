@@ -1,0 +1,51 @@
+[
+  {
+    "annotations": {
+      "description": "PersistentVolume is expected to fill up within 4 days.",
+      "runbook_url": "https://github.com/openshift/runbooks/blob/master/alerts/cluster-monitoring-operator/PersistentVolumeFillingUp.md",
+      "summary": "PersistentVolume is filling up."
+    },
+    "endsAt": "0001-01-01T00:00:00Z",
+    "fingerprint": "b2c3d4e5f6a7890123456789abcdef0",
+    "receivers": [
+      { "name": "Default" }
+    ],
+    "startsAt": "2026-06-29T14:22:10.456Z",
+    "status": {
+      "inhibitedBy": [],
+      "silencedBy": [],
+      "state": "active"
+    },
+    "updatedAt": "2026-06-29T14:25:00.123Z",
+    "generatorURL": "https://prometheus-k8s.openshift-monitoring.svc:9091/graph?g0.expr=...",
+    "labels": {
+      "alertname": "PersistentVolumeFillingUp",
+      "namespace": "openshift-monitoring",
+      "persistentvolumeclaim": "prometheusdb-prometheus-k8s-0",
+      "severity": "warning",
+      "job": "kube-state-metrics"
+    }
+  },
+  {
+    "annotations": {
+      "summary": "Cluster CPU usage above 90% for 15 minutes."
+    },
+    "endsAt": "0001-01-01T00:00:00Z",
+    "fingerprint": "c3d4e5f6a7890123456789abcdef01234",
+    "receivers": [
+      { "name": "Default" }
+    ],
+    "startsAt": "2026-06-29T13:05:00.000Z",
+    "status": {
+      "inhibitedBy": [],
+      "silencedBy": [],
+      "state": "active"
+    },
+    "updatedAt": "2026-06-29T14:25:00.123Z",
+    "generatorURL": "https://prometheus-k8s.openshift-monitoring.svc:9091/graph?g0.expr=...",
+    "labels": {
+      "alertname": "ClusterCPUHigh",
+      "severity": "critical"
+    }
+  }
+]

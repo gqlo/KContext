@@ -1,0 +1,17 @@
+{
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "HighCPU",
+        "severity": "warning",
+        "namespace": "openshift-monitoring",
+        "pod": "prometheus-k8s-0"
+      },
+      "annotations": {
+        "summary": "CPU usage above 90%",
+        "runbook_url": "https://github.com/openshift/runbooks/example.md"
+      }
+    }
+  ]
+}
