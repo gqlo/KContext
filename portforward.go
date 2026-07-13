@@ -28,6 +28,32 @@ const (
 type alertmanagerPortForward struct {
 	cmd       *exec.Cmd
 	localPort int
+	cfg       pfConfig
+}
+
+func startAlertmanagerPortForward(cfg pfConfig) (*alertmanagerPortForward, error) {
+	oc := resolveOcBinary()
+	if oc == "" {
+		return nil, fmt.Errorf("oc not found")
+	}
+
+	addr := fmt.Sprintf("%d:%d", cfg.localPort, cfg.remotePort)
+	args := []string{"port-forward", "-n", cfg.namespace, "svc/" + cfg.service, addr}
+	cmd := exec.Command(oc, args...)
+	cmd.Env = os.Environ()
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("oc port-forward: %w", err)
+	}
+
+	pf := &alertmanagerPortForward{cmd: cmd, localPort: cfg.localPort, cfg: cfg}
+	if err := waitForPort(cfg.localPort, 30*time.Second); err != nil {
+		pf.stop()
+		return nil, fmt.Errorf("port-forward did not become ready on %d: %w", cfg.localPort, err)
+	}
+
+	log.Printf("Alertmanager port-forward started: oc %s (localhost:%d)", strings.Join(args, " "), cfg.localPort)
+	return pf, nil
 }
 
 func maybeStartAlertmanagerPortForward() (*alertmanagerPortForward, error) {
@@ -45,28 +71,7 @@ func maybeStartAlertmanagerPortForward() (*alertmanagerPortForward, error) {
 		return nil, nil
 	}
 
-	oc := resolveOcBinary()
-	if oc == "" {
-		return nil, fmt.Errorf("oc not found")
-	}
-
-	addr := fmt.Sprintf("%d:%d", cfg.localPort, cfg.remotePort)
-	args := []string{"port-forward", "-n", cfg.namespace, "svc/" + cfg.service, addr}
-	cmd := exec.Command(oc, args...)
-	cmd.Env = os.Environ()
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("oc port-forward: %w", err)
-	}
-
-	pf := &alertmanagerPortForward{cmd: cmd, localPort: cfg.localPort}
-	if err := waitForPort(cfg.localPort, 30*time.Second); err != nil {
-		pf.stop()
-		return nil, fmt.Errorf("port-forward did not become ready on %d: %w", cfg.localPort, err)
-	}
-
-	log.Printf("Alertmanager port-forward started: oc %s (localhost:%d)", strings.Join(args, " "), cfg.localPort)
-	return pf, nil
+	return startAlertmanagerPortForward(cfg)
 }
 
 func (pf *alertmanagerPortForward) stop() {
@@ -75,6 +80,16 @@ func (pf *alertmanagerPortForward) stop() {
 	}
 	_ = pf.cmd.Process.Kill()
 	_, _ = pf.cmd.Process.Wait()
+	pf.cmd = nil
+}
+
+func (pf *alertmanagerPortForward) restart() (*alertmanagerPortForward, error) {
+	if pf == nil {
+		return nil, fmt.Errorf("no port-forward to restart")
+	}
+	cfg := pf.cfg
+	pf.stop()
+	return startAlertmanagerPortForward(cfg)
 }
 
 type pfConfig struct {

@@ -17,19 +17,13 @@ func Run() {
 
 	srv := NewServer(store, os.Getenv("SLACK_TOKEN"), os.Getenv("SLACK_CHANNEL_ID"))
 
-	pf, err := maybeStartAlertmanagerPortForward()
-	if err != nil {
-		log.Printf("WARNING: Alertmanager port-forward: %v", err)
-	} else if pf != nil {
-		defer pf.stop()
-	}
-
-	amClient, err := newAlertmanagerClient()
+	amSession, err := newAlertmanagerPollSession(store)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if amClient != nil {
-		go startAlertmanagerPoller(store, amClient)
+	if amSession != nil {
+		defer amSession.stop()
+		go amSession.run()
 	}
 
 	addr := os.Getenv("LISTEN_ADDR")

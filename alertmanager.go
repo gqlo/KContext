@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,17 +12,35 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 const DefaultAlertmanagerURL = "https://localhost:9094"
 
-const defaultAlertmanagerURL = DefaultAlertmanagerURL
+const (
+	defaultAlertmanagerURL      = DefaultAlertmanagerURL
+	alertmanagerClientTimeout   = 15 * time.Second
+	alertmanagerPollCtxTimeout  = 20 * time.Second
+	alertmanagerPFRestartMinGap = 30 * time.Second
+)
 
 type alertmanagerClient struct {
 	baseURL    string
 	httpClient *http.Client
 	token      string
+}
+
+type alertmanagerHTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *alertmanagerHTTPError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf("alertmanager %d: %s", e.StatusCode, e.Body)
+	}
+	return fmt.Sprintf("alertmanager %d", e.StatusCode)
 }
 
 type amAlert struct {
@@ -35,6 +54,22 @@ type amAlert struct {
 	Status       struct {
 		State string `json:"state"`
 	} `json:"status"`
+}
+
+type alertmanagerPollSession struct {
+	mu            sync.Mutex
+	store         *AlertStore
+	client        *alertmanagerClient
+	pf            *alertmanagerPortForward
+	pfOwned       bool
+	lastPFRestart time.Time
+}
+
+func newAlertmanagerHTTPTransport(insecure bool) *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec
+	transport.DisableKeepAlives = true
+	return transport
 }
 
 func newAlertmanagerClient() (*alertmanagerClient, error) {
@@ -61,17 +96,36 @@ func newAlertmanagerClient() (*alertmanagerClient, error) {
 		log.Print("WARNING: no Alertmanager token")
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec
-
 	return &alertmanagerClient{
 		baseURL: baseURL,
 		token:   token,
 		httpClient: &http.Client{
-			Timeout:   15 * time.Second,
-			Transport: transport,
+			Timeout:   alertmanagerClientTimeout,
+			Transport: newAlertmanagerHTTPTransport(insecure),
 		},
 	}, nil
+}
+
+func (c *alertmanagerClient) refreshTransport() {
+	if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+	c.httpClient = &http.Client{
+		Timeout:   alertmanagerClientTimeout,
+		Transport: newAlertmanagerHTTPTransport(alertmanagerTLSInsecure()),
+	}
+}
+
+func (c *alertmanagerClient) refreshToken() error {
+	token, source, err := alertmanagerToken()
+	if err != nil {
+		return err
+	}
+	c.token = token
+	if source != "" {
+		log.Printf("Alertmanager auth refreshed: %s", source)
+	}
+	return nil
 }
 
 func alertmanagerPollingEnabled() bool {
@@ -139,7 +193,10 @@ func (c *alertmanagerClient) FetchAlerts(ctx context.Context) ([]amAlert, error)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("alertmanager %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return nil, &alertmanagerHTTPError{
+			StatusCode: resp.StatusCode,
+			Body:       strings.TrimSpace(string(body)),
+		}
 	}
 
 	var alerts []amAlert
@@ -192,20 +249,43 @@ func parsePollInterval() time.Duration {
 	return d
 }
 
-func startAlertmanagerPoller(store *AlertStore, client *alertmanagerClient) {
+func newAlertmanagerPollSession(store *AlertStore) (*alertmanagerPollSession, error) {
+	client, err := newAlertmanagerClient()
+	if err != nil {
+		return nil, err
+	}
+	if client == nil {
+		return nil, nil
+	}
+
+	pf, err := maybeStartAlertmanagerPortForward()
+	if err != nil {
+		log.Printf("WARNING: Alertmanager port-forward: %v", err)
+	}
+
+	return &alertmanagerPollSession{
+		store:   store,
+		client:  client,
+		pf:      pf,
+		pfOwned: pf != nil,
+	}, nil
+}
+
+func (s *alertmanagerPollSession) run() {
 	interval := parsePollInterval()
-	log.Printf("Alertmanager polling enabled: %s every %s", client.baseURL, interval)
+	log.Printf("Alertmanager polling enabled: %s every %s", s.client.baseURL, interval)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	poll := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), alertmanagerPollCtxTimeout)
 		defer cancel()
 
-		alerts, err := client.FetchAlerts(ctx)
+		alerts, err := s.client.FetchAlerts(ctx)
 		if err != nil {
 			log.Printf("alertmanager poll: %v", err)
+			s.recoverFromPollError(err)
 			return
 		}
 
@@ -230,7 +310,7 @@ func startAlertmanagerPoller(store *AlertStore, client *alertmanagerClient) {
 			})
 		}
 
-		newCount, resolvedCount, err := store.SyncPolled(ctx, polled)
+		newCount, resolvedCount, err := s.store.SyncPolled(ctx, polled)
 		if err != nil {
 			log.Printf("sync polled alerts: %v", err)
 			return
@@ -244,6 +324,131 @@ func startAlertmanagerPoller(store *AlertStore, client *alertmanagerClient) {
 	for range ticker.C {
 		poll()
 	}
+}
+
+func (s *alertmanagerPollSession) stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pf != nil {
+		s.pf.stop()
+		s.pf = nil
+	}
+}
+
+func (s *alertmanagerPollSession) recoverFromPollError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.client.refreshTransport()
+
+	if isAlertmanagerUnauthorized(err) {
+		if tokenErr := s.client.refreshToken(); tokenErr != nil {
+			log.Printf("alertmanager token refresh: %v", tokenErr)
+		}
+	}
+
+	if !shouldRecoverPortForward(s.client.baseURL) {
+		return
+	}
+
+	if s.pfOwned && s.pf != nil {
+		if time.Since(s.lastPFRestart) < alertmanagerPFRestartMinGap {
+			return
+		}
+		newPF, pfErr := s.pf.restart()
+		if pfErr != nil {
+			log.Printf("alertmanager port-forward restart: %v", pfErr)
+			return
+		}
+		s.pf = newPF
+		s.lastPFRestart = time.Now()
+		log.Printf("Alertmanager port-forward restarted after poll failure")
+		return
+	}
+
+	cfg, cfgErr := alertmanagerPortForwardConfig()
+	if cfgErr != nil {
+		log.Printf("alertmanager port-forward recovery: %v", cfgErr)
+		return
+	}
+	if portListening(cfg.localPort) {
+		log.Printf("alertmanager poll failed and port %d is in use by another process; restart port-forward manually or set ALERTMANAGER_PORT_FORWARD=true after freeing the port", cfg.localPort)
+		return
+	}
+
+	newPF, pfErr := startAlertmanagerPortForward(cfg)
+	if pfErr != nil {
+		log.Printf("alertmanager port-forward start: %v", pfErr)
+		return
+	}
+	s.pf = newPF
+	s.pfOwned = true
+	s.lastPFRestart = time.Now()
+	log.Printf("Alertmanager port-forward started after poll failure")
+}
+
+func shouldRecoverPortForward(baseURL string) bool {
+	if !shouldStartAlertmanagerPortForward() {
+		return false
+	}
+	return isLocalhostAlertmanagerURL(baseURL)
+}
+
+func isAlertmanagerUnauthorized(err error) bool {
+	var httpErr *alertmanagerHTTPError
+	return errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusUnauthorized
+}
+
+// AlertmanagerAlertFingerprint is a minimal alert identity returned by FetchAlertmanagerAlerts.
+type AlertmanagerAlertFingerprint struct {
+	Fingerprint string
+}
+
+// NewAlertmanagerHTTPTransport returns the HTTP transport used for Alertmanager polling.
+func NewAlertmanagerHTTPTransport(insecure bool) http.RoundTripper {
+	return newAlertmanagerHTTPTransport(insecure)
+}
+
+// FetchAlertmanagerAlerts requests the Alertmanager alerts API once.
+func FetchAlertmanagerAlerts(ctx context.Context, baseURL, token string, httpClient *http.Client) ([]AlertmanagerAlertFingerprint, error) {
+	c := &alertmanagerClient{
+		baseURL:    baseURL,
+		token:      token,
+		httpClient: httpClient,
+	}
+	alerts, err := c.FetchAlerts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AlertmanagerAlertFingerprint, len(alerts))
+	for i, a := range alerts {
+		out[i] = AlertmanagerAlertFingerprint{Fingerprint: a.Fingerprint}
+	}
+	return out, nil
+}
+
+// RefreshAlertmanagerHTTPClient replaces the transport on an Alertmanager HTTP client.
+func RefreshAlertmanagerHTTPClient(c *http.Client) {
+	if transport, ok := c.Transport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+	*c = http.Client{
+		Timeout:   c.Timeout,
+		Transport: newAlertmanagerHTTPTransport(alertmanagerTLSInsecure()),
+	}
+	if c.Timeout == 0 {
+		c.Timeout = alertmanagerClientTimeout
+	}
+}
+
+// IsAlertmanagerUnauthorized reports whether err is HTTP 401 from Alertmanager.
+func IsAlertmanagerUnauthorized(err error) bool {
+	return isAlertmanagerUnauthorized(err)
+}
+
+// ShouldRecoverPortForward reports whether poll failures should restart port-forward.
+func ShouldRecoverPortForward(baseURL string) bool {
+	return shouldRecoverPortForward(baseURL)
 }
 
 // AlertmanagerAlertsURL returns the alerts API URL used for polling.
