@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -157,14 +158,32 @@ func (s *Server) cachedClusterMeta() ClusterMeta {
 		s.clusterMetaMu.RUnlock()
 		return meta
 	}
+	stale := s.clusterMeta
 	s.clusterMetaMu.RUnlock()
 
-	s.clusterMetaMu.Lock()
-	defer s.clusterMetaMu.Unlock()
+	s.triggerClusterMetaRefresh()
+	return stale
+}
 
-	if !s.clusterMetaAt.IsZero() && time.Since(s.clusterMetaAt) < clusterMetaTTL {
-		return s.clusterMeta
+func (s *Server) refreshClusterMetaLoop() {
+	s.refreshClusterMeta()
+
+	ticker := time.NewTicker(clusterMetaTTL)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.refreshClusterMeta()
 	}
+}
+
+func (s *Server) triggerClusterMetaRefresh() {
+	go s.refreshClusterMeta()
+}
+
+func (s *Server) refreshClusterMeta() {
+	if !atomic.CompareAndSwapInt32(&s.clusterMetaRefreshing, 0, 1) {
+		return
+	}
+	defer atomic.StoreInt32(&s.clusterMetaRefreshing, 0)
 
 	metaCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -178,10 +197,11 @@ func (s *Server) cachedClusterMeta() ClusterMeta {
 		if resolveOcBinary() != "" {
 			log.Print("cluster meta: oc queries returned no data (check oc login and permissions)")
 		}
-		return meta
+		return
 	}
 
+	s.clusterMetaMu.Lock()
 	s.clusterMeta = meta
 	s.clusterMetaAt = time.Now()
-	return s.clusterMeta
+	s.clusterMetaMu.Unlock()
 }

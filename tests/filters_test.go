@@ -361,6 +361,20 @@ func TestAlertsPageData_links(t *testing.T) {
 	if !strings.Contains(next, "page=3") || !strings.Contains(next, "severity=critical") {
 		t.Errorf("NextPageLink() = %q", next)
 	}
+	first := d.FirstPageLink()
+	if first != "/?severity=critical" {
+		t.Errorf("FirstPageLink() = %q, want page 1 (no page param)", first)
+	}
+	last := d.LastPageLink()
+	if !strings.Contains(last, "page=3") || !strings.Contains(last, "severity=critical") {
+		t.Errorf("LastPageLink() = %q", last)
+	}
+	if (kcontext.AlertsPageData{Page: 1, TotalPages: 3}).FirstPageLink() != "" {
+		t.Error("page 1 should have empty first link")
+	}
+	if (kcontext.AlertsPageData{Page: 3, TotalPages: 3}).LastPageLink() != "" {
+		t.Error("last page should have empty last link")
+	}
 	if (kcontext.AlertsPageData{Page: 1}).PrevPageLink() != "" {
 		t.Error("page 1 should have empty prev link")
 	}

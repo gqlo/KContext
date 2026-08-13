@@ -418,9 +418,11 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     {{if .Alerts}}
     {{if gt .TotalPages 1}}
     <nav class="pagination">
+      {{if .FirstPageLink}}<a href="{{.FirstPageLink}}">First</a>{{else}}<span class="disabled">First</span>{{end}}
       {{if .PrevPageLink}}<a href="{{.PrevPageLink}}">← Prev</a>{{else}}<span class="disabled">← Prev</span>{{end}}
       <span class="page-info">Page {{.Page}} of {{.TotalPages}}</span>
       {{if .NextPageLink}}<a href="{{.NextPageLink}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
+      {{if .LastPageLink}}<a href="{{.LastPageLink}}">Last</a>{{else}}<span class="disabled">Last</span>{{end}}
     </nav>
     {{end}}
     <div class="alerts-table-wrap">
@@ -458,9 +460,11 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     </div>
     {{if gt .TotalPages 1}}
     <nav class="pagination">
+      {{if .FirstPageLink}}<a href="{{.FirstPageLink}}">First</a>{{else}}<span class="disabled">First</span>{{end}}
       {{if .PrevPageLink}}<a href="{{.PrevPageLink}}">← Prev</a>{{else}}<span class="disabled">← Prev</span>{{end}}
       <span class="page-info">Page {{.Page}} of {{.TotalPages}}</span>
       {{if .NextPageLink}}<a href="{{.NextPageLink}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
+      {{if .LastPageLink}}<a href="{{.LastPageLink}}">Last</a>{{else}}<span class="disabled">Last</span>{{end}}
     </nav>
     {{end}}
     {{else}}
@@ -581,19 +585,29 @@ type Server struct {
 	mu          sync.Mutex
 	dailyThread map[string]string
 
-	clusterMetaMu sync.RWMutex
-	clusterMeta   ClusterMeta
-	clusterMetaAt time.Time
+	snapshot *AlertSnapshotCache
+
+	clusterMetaMu         sync.RWMutex
+	clusterMeta           ClusterMeta
+	clusterMetaAt         time.Time
+	clusterMetaRefreshing int32
 }
 
 // NewServer constructs an HTTP handler bundle for the dashboard and webhook.
 func NewServer(store *AlertStore, slackToken, channelID string) *Server {
-	return &Server{
+	s := &Server{
 		store:       store,
 		slackToken:  slackToken,
 		channelID:   channelID,
 		dailyThread: map[string]string{},
 	}
+	if store != nil {
+		s.snapshot = newAlertSnapshotCache(store)
+		store.SetChangeNotifier(s.snapshot.MarkDirty)
+		s.snapshot.start()
+		go s.refreshClusterMetaLoop()
+	}
+	return s
 }
 
 // Store returns the alert store used by this server.
@@ -616,14 +630,36 @@ func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	all, err := s.store.List(ctx, 0)
-	if err != nil {
-		log.Printf("list alerts: %v", err)
-		http.Error(w, "failed to load alerts", http.StatusInternalServerError)
-		return
+	var (
+		total int
+		view  filteredAlertView
+	)
+	if s.snapshot != nil {
+		if n, err := s.store.Len(ctx); err == nil && int(n) != s.snapshot.Total() {
+			s.snapshot.RefreshNow(ctx)
+		}
+		snapView := s.snapshot.filteredView(filters)
+		total = s.snapshot.Total()
+		view = snapView
+	} else {
+		var err error
+		allFromStore, err := s.store.List(ctx, 0)
+		if err != nil {
+			log.Printf("list alerts: %v", err)
+			http.Error(w, "failed to load alerts", http.StatusInternalServerError)
+			return
+		}
+		total = len(allFromStore)
+		filtered := FilterAlerts(allFromStore, filters)
+		view = filteredAlertView{
+			alerts:            filtered,
+			namespaceRanks:    RankAlertsByNamespace(filtered),
+			namespaces:        NamespacesForFilter(filtered, filters.Namespace),
+			hasEmptyNamespace: AlertsHaveEmptyNamespace(filtered),
+		}
 	}
 
-	alerts := FilterAlerts(all, filters)
+	alerts := view.alerts
 	pageAlerts, totalPages, page := PaginateAlerts(alerts, filters.Page, filters.PerPage)
 	filters.Page = page
 
@@ -638,11 +674,11 @@ func (s *Server) HandleAlertsPage(w http.ResponseWriter, r *http.Request) {
 		Alerts:                  pageAlerts,
 		Count:                   len(pageAlerts),
 		Filtered:                len(alerts),
-		Total:                   len(all),
+		Total:                   total,
 		Filters:                 filters,
-		Namespaces:              NamespacesForFilter(alerts, filters.Namespace),
-		NamespaceRanks:          RankAlertsByNamespace(alerts),
-		HasEmptyNamespaceAlerts: AlertsHaveEmptyNamespace(alerts),
+		Namespaces:              view.namespaces,
+		NamespaceRanks:          view.namespaceRanks,
+		HasEmptyNamespaceAlerts: view.hasEmptyNamespace,
 		Page:                    page,
 		TotalPages:              totalPages,
 		PageStart:               pageStart,
@@ -677,6 +713,9 @@ func (s *Server) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Save(ctx, alert); err != nil {
 			log.Printf("store alert: %v", err)
 		}
+	}
+	if len(payload.Alerts) > 0 && s.snapshot != nil {
+		s.snapshot.MarkDirty()
 	}
 
 	if s.SlackEnabled() {

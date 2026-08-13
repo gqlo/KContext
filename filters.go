@@ -65,11 +65,25 @@ func (d AlertsPageData) PrevPageLink() string {
 	return d.PageLink(d.Page - 1)
 }
 
+func (d AlertsPageData) FirstPageLink() string {
+	if d.Page <= 1 {
+		return ""
+	}
+	return d.PageLink(1)
+}
+
 func (d AlertsPageData) NextPageLink() string {
 	if d.Page >= d.TotalPages {
 		return ""
 	}
 	return d.PageLink(d.Page + 1)
+}
+
+func (d AlertsPageData) LastPageLink() string {
+	if d.Page >= d.TotalPages || d.TotalPages <= 1 {
+		return ""
+	}
+	return d.PageLink(d.TotalPages)
 }
 
 func (d AlertsPageData) NamespaceLink(ns string) string {
@@ -93,6 +107,14 @@ func (AlertFilters) NoneNamespaceFilterValue() string {
 
 func (d AlertsPageData) AlertDetailLink(id string) string {
 	return "/alert?id=" + url.QueryEscape(id) + "&" + d.Filters.Encode()
+}
+
+// StatsKey identifies filter parameters that affect counts and sidebar stats (not page).
+func (f AlertFilters) StatsKey() string {
+	ff := f
+	ff.Page = 0
+	ff.PerPage = 0
+	return ff.Encode()
 }
 
 func (f AlertFilters) Encode() string {

@@ -129,7 +129,13 @@ type PolledAlert struct {
 }
 
 type AlertStore struct {
-	rdb *redis.Client
+	rdb      *redis.Client
+	onChange func()
+}
+
+// SetChangeNotifier registers a callback invoked after polled sync changes alerts.
+func (s *AlertStore) SetChangeNotifier(fn func()) {
+	s.onChange = fn
 }
 
 // NewAlertStoreWithRedis constructs an AlertStore backed by an existing Redis client.
@@ -156,7 +162,13 @@ func NewAlertStore() (*AlertStore, error) {
 }
 
 func (s *AlertStore) Save(ctx context.Context, alert Alert) error {
-	return s.saveStored(ctx, NewStoredFromAlert(alert, "webhook"))
+	if err := s.saveStored(ctx, NewStoredFromAlert(alert, "webhook")); err != nil {
+		return err
+	}
+	if s.onChange != nil {
+		s.onChange()
+	}
+	return nil
 }
 
 func NewStoredFromAlert(alert Alert, source string) StoredAlert {
@@ -252,6 +264,10 @@ func (s *AlertStore) SyncPolled(ctx context.Context, alerts []PolledAlert) (newC
 			return newCount, resolvedCount, err
 		}
 		resolvedCount++
+	}
+
+	if newCount+resolvedCount > 0 && s.onChange != nil {
+		s.onChange()
 	}
 
 	return newCount, resolvedCount, nil

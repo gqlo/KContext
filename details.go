@@ -211,11 +211,18 @@ func (s *Server) HandleAlertDetail(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	alert, err := s.store.Get(ctx, id)
-	if err != nil {
-		log.Printf("get alert %s: %v", id, err)
-		http.Error(w, "failed to load alert", http.StatusInternalServerError)
-		return
+	var alert *StoredAlert
+	if s.snapshot != nil {
+		alert = s.snapshot.getByID(id)
+	}
+	if alert == nil {
+		var err error
+		alert, err = s.store.Get(ctx, id)
+		if err != nil {
+			log.Printf("get alert %s: %v", id, err)
+			http.Error(w, "failed to load alert", http.StatusInternalServerError)
+			return
+		}
 	}
 	if alert == nil {
 		http.NotFound(w, r)
