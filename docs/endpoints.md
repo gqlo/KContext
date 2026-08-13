@@ -15,3 +15,5 @@ Open a single alert by ID (shown in the dashboard). Filter and display options: 
 ```text
 GET /alert?id=<stored-alert-id>
 ```
+
+Planned: for VM-related alerts, the detail page also shows collected VMI describe and virt-launcher logs — see [vm-context.md](vm-context.md).

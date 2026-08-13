@@ -17,6 +17,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
 	"fmtRelative": FormatRelativeTime,
 	"fmtTime":     FormatAlertTime,
 	"fmtISO":      FormatTimeISO,
+	"headerIntro": headerIntro,
 }).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -58,7 +59,15 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       text-decoration: none;
     }
     header h1 a:hover { color: var(--link); }
-    header p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.875rem; }
+    header .subtitle { margin: 0.15rem 0 0; font-size: 0.9375rem; font-weight: 600; color: var(--text); }
+    header .about,
+    header .does,
+    header .repo,
+    header .meta { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; max-width: 72rem; line-height: 1.45; }
+    header .about strong,
+    header .does strong { color: var(--text); font-weight: 600; }
+    header .repo a { color: var(--link); text-decoration: none; }
+    header .repo a:hover { text-decoration: underline; }
     .page-body {
       display: flex;
       gap: 1.25rem;
@@ -284,7 +293,8 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
 <body>
   <header>
     <h1><a href="/" title="Clear all filters">KContext</a></h1>
-    <p>{{if gt .Filtered 0}}Showing {{.PageStart}}–{{.PageEnd}} of {{.Filtered}} alert(s){{if lt .Filtered .Total}} · {{.Total}} total stored{{end}}{{else}}No alerts match the current filters{{end}} · newest first</p>
+    {{headerIntro}}
+    <p class="meta">{{if gt .Filtered 0}}Showing {{.PageStart}}–{{.PageEnd}} of {{.Filtered}} alert(s){{if lt .Filtered .Total}} · {{.Total}} total stored{{end}}{{else}}No alerts match the current filters{{end}} · newest first</p>
   </header>
   <div class="page-body">
     <aside class="sidebar">

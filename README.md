@@ -1,6 +1,8 @@
 # KContext
 
-Collect operational context from OpenShift / Kubernetes clusters — logs, alerts, and error signals — and package it for humans or AI-assisted triage.
+**Repository:** [github.com/gqlo/KContext](https://github.com/gqlo/KContext)
+
+Ingest OpenShift / Kubernetes Alertmanager alerts, store them in Redis, and browse them on a filterable HTML dashboard — with optional Slack notifications and cluster context via `oc`.
 
 When something fires, operators need more than the alert text. KContext gathers surrounding signals into a structured bundle so you can debug faster or hand off a concise summary to an LLM.
 
@@ -46,12 +48,14 @@ Polling defaults to `https://localhost:9094` and starts `oc port-forward` automa
 
 | Doc | Description |
 |-----|-------------|
+| [architecture.md](docs/architecture.md) | How KContext works today — pieces and data flow |
 | [alert-flow.md](docs/alert-flow.md) | Poll vs webhook ingest paths |
 | [webhook-ingest.md](docs/webhook-ingest.md) | Alertmanager webhook receiver and testing |
 | [configuration.md](docs/configuration.md) | Environment variables |
 | [endpoints.md](docs/endpoints.md) | HTTP routes |
 | [dashboard.md](docs/dashboard.md) | Dashboard UI, filters, and pagination |
 | [alert-polling.md](docs/alert-polling.md) | Alertmanager poll API, OpenShift RBAC, dedup |
+| [vm-context.md](docs/vm-context.md) | Design: VM alert context (describe VMI + virt-launcher logs) |
 | [alertmanager-api-response.json](docs/alertmanager-api-response.json) | Sample Alertmanager poll response |
 | [test-webhook.sh](docs/test-webhook.sh) | POST a sample alert to `/webhook` |
 | [webhook-payload.json](docs/webhook-payload.json) | JSON body used by `test-webhook.sh` |

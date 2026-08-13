@@ -15,6 +15,7 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
 	"fmtRelative": FormatRelativeTime,
 	"fmtISO":      FormatTimeISO,
 	"hasPrefix":   strings.HasPrefix,
+	"headerIntro": headerIntro,
 }).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -49,7 +50,15 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
     header h1 { margin: 0; font-size: 1.25rem; }
     header h1 a { color: inherit; text-decoration: none; }
     header h1 a:hover { color: var(--link); }
-    header p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
+    header .subtitle { margin: 0.15rem 0 0; font-size: 0.9375rem; font-weight: 600; color: var(--text); }
+    header .about,
+    header .does,
+    header .repo,
+    header .meta { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; max-width: 72rem; line-height: 1.45; }
+    header .about strong,
+    header .does strong { color: var(--text); font-weight: 600; }
+    header .repo a { color: var(--link); text-decoration: none; }
+    header .repo a:hover { text-decoration: underline; }
     main { padding: 1rem 1.5rem 1.5rem; width: 100%; max-width: none; margin: 0; }
     .back { display: inline-block; margin-bottom: 1rem; color: var(--link); text-decoration: none; font-size: 0.875rem; }
     .back:hover { text-decoration: underline; }
@@ -97,7 +106,8 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
 <body>
   <header>
     <h1><a href="/" title="Clear all filters">KContext</a></h1>
-    <p>Alert detail</p>
+    {{headerIntro}}
+    <p class="meta">Alert detail</p>
   </header>
   <main>
     <a class="back" href="{{.BackLink}}">← Back to alerts</a>
