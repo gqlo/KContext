@@ -12,7 +12,7 @@ Run KContext as a systemd service on Linux. Files in this directory:
 
 - Go 1.24+ (to build)
 - Redis running (`redis.service` or remote `REDIS_ADDR`)
-- For Alertmanager polling with `oc port-forward`: `oc` logged in; configure `User` and `KUBECONFIG` in the unit file (see below)
+- For Alertmanager polling with `oc port-forward`: `oc` logged in on the install user; `install-kcontext.sh` configures `User` and `KUBECONFIG` automatically when `~/.kube/config` exists
 
 ## Quick install
 
@@ -81,26 +81,24 @@ sudo systemctl restart kcontext
 | `/opt/kcontext/deploy/openshift` | OpenShift RBAC manifests (`oc apply -f`) |
 | `/etc/kcontext/kcontext.env` | Environment variables (`EnvironmentFile` in unit) |
 | `/etc/systemd/system/kcontext.service` | systemd unit |
+| `/etc/systemd/system/kcontext.service.d/install.conf` | Auto-generated `User` / `KUBECONFIG` for `oc` |
 
 ## Local dev with `oc` port-forward
 
-The default unit runs as root. Alertmanager auto port-forward needs a valid `kubeconfig`. Edit `/etc/systemd/system/kcontext.service` (or add a drop-in):
+When you run `install-kcontext.sh` (typically via `sudo` from your login), the script writes `/etc/systemd/system/kcontext.service.d/install.conf` with:
 
-```ini
-[Service]
-User=youruser
-Group=youruser
-Environment=KUBECONFIG=/home/youruser/.kube/config
-```
+- `User` / `Group` — the user who invoked `sudo` (or `KCONTEXT_INSTALL_USER`)
+- `KUBECONFIG` — `~/.kube/config` for that user (or `KCONTEXT_INSTALL_KUBECONFIG`)
 
-Then:
+Override manually:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart kcontext
+export KCONTEXT_INSTALL_USER=youruser
+export KCONTEXT_INSTALL_KUBECONFIG=/home/youruser/.kube/config
+./utils/install-kcontext.sh
 ```
 
-Re-run `install-kcontext.sh` after editing the unit in `utils/kcontext.service` so systemd picks up template changes.
+If `oc` is not configured, set `ALERTMANAGER_TOKEN_FILE` in `/etc/kcontext/kcontext.env` or disable polling with `ALERTMANAGER_URL=`.
 
 ## Manual service commands
 

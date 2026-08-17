@@ -15,10 +15,7 @@ RestartSec=5
 # Raise if you store many alerts in Redis snapshot cache.
 # LimitNOFILE=65536
 
-# For local dev with oc port-forward, run as the user that owns kubeconfig:
-# User=otus
-# Group=otus
-# Environment=KUBECONFIG=/home/otus/.kube/config
+# User/Group/KUBECONFIG: install-kcontext.sh writes systemd drop-in install.conf when oc login exists
 
 [Install]
 WantedBy=multi-user.target
