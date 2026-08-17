@@ -9,6 +9,7 @@ BIN_DEST="/usr/local/bin/kcontext"
 DEPLOY_DEST="/opt/kcontext/deploy/openshift"
 ENV_DIR="/etc/kcontext"
 ENV_FILE="${ENV_DIR}/kcontext.env"
+SYSTEM_KUBECONFIG="${ENV_DIR}/kubeconfig"
 SYSTEMD_UNIT="/etc/systemd/system/kcontext.service"
 SYSTEMD_DROPIN_DIR="/etc/systemd/system/kcontext.service.d"
 SYSTEMD_DROPIN="${SYSTEMD_DROPIN_DIR}/install.conf"
@@ -30,7 +31,8 @@ Options:
 First run creates ${ENV_FILE} from kcontext.env.example if missing.
 An existing env file is never overwritten (except KCONTEXT_DEPLOY_DIR and KUBECONFIG are refreshed when detected).
 
-When Alertmanager polling is enabled, install validates oc login, oc apply RBAC manifests,
+When Alertmanager polling is enabled, install uses the installer shell's \$KUBECONFIG (if set),
+materializes a flattened copy to ${ENV_DIR}/kubeconfig for systemd, validates oc apply RBAC manifests,
 and that the service stays running for at least 8 seconds after start.
 EOF
 }
@@ -102,8 +104,47 @@ validate_alertmanager_token_file() {
 	return 0
 }
 
+run_root() {
+	if [[ "${EUID}" -eq 0 ]]; then
+		"$@"
+	else
+		sudo "$@"
+	fi
+}
+
+run_as_install_user() {
+	local user="$1"
+	shift
+	if [[ "$(id -un)" == "${user}" ]]; then
+		"$@"
+	elif command -v runuser >/dev/null 2>&1; then
+		runuser -u "${user}" -w / -- "$@"
+	else
+		sudo -u "${user}" -- "$@"
+	fi
+}
+
+# Run oc whoami with a KUBECONFIG value (single path or colon-separated list).
+oc_whoami_with_kubeconfig() {
+	local kubeconfig="$1"
+	[[ -n "${kubeconfig}" ]] || return 1
+	KUBECONFIG="${kubeconfig}" oc whoami 2>/dev/null || return 1
+}
+
+materialize_system_kubeconfig() {
+	local user="$1" source_kubeconfig="${2:-}" group
+	group="$(id -gn "${user}")"
+	if [[ -n "${source_kubeconfig}" ]]; then
+		run_as_install_user "${user}" env KUBECONFIG="${source_kubeconfig}" oc config view --flatten
+	else
+		run_as_install_user "${user}" bash -lc 'oc config view --flatten'
+	fi | run_root tee "${SYSTEM_KUBECONFIG}.tmp" >/dev/null
+	run_root install -m 0640 -o "${user}" -g "${group}" "${SYSTEM_KUBECONFIG}.tmp" "${SYSTEM_KUBECONFIG}"
+	run_root rm -f "${SYSTEM_KUBECONFIG}.tmp"
+}
+
 validate_oc_kubeconfig() {
-	local user home kubeconfig whoami
+	local user home kubeconfig whoami source_kubeconfig tried kc part
 	user="$(install_user)"
 	if [[ -z "${user}" ]]; then
 		echo "ERROR: could not determine install user for oc/kubeconfig" >&2
@@ -117,25 +158,81 @@ validate_oc_kubeconfig() {
 		return 1
 	fi
 
-	kubeconfig="${KCONTEXT_INSTALL_KUBECONFIG:-${home}/.kube/config}"
-	if ! run_root test -f "${kubeconfig}"; then
-		echo "ERROR: kubeconfig not found at ${kubeconfig} for user ${user}" >&2
-		echo "    Run oc login, set KCONTEXT_INSTALL_KUBECONFIG, or set ALERTMANAGER_TOKEN_FILE" >&2
-		return 1
-	fi
-
 	if ! command -v oc >/dev/null 2>&1; then
 		echo "ERROR: oc not found in PATH (required for Alertmanager polling)" >&2
 		return 1
 	fi
 
-	whoami="$(KUBECONFIG="${kubeconfig}" oc whoami 2>&1)" || {
-		echo "ERROR: kubeconfig at ${kubeconfig} is missing or incomplete (oc whoami failed)" >&2
-		echo "    ${whoami}" >&2
-		echo "    Run oc login or fix KUBECONFIG before installing" >&2
+	tried=""
+	source_kubeconfig=""
+	whoami=""
+
+	# 1. Explicit install override
+	if [[ -n "${KCONTEXT_INSTALL_KUBECONFIG:-}" ]]; then
+		tried="${tried} KCONTEXT_INSTALL_KUBECONFIG=${KCONTEXT_INSTALL_KUBECONFIG}"
+		if whoami="$(oc_whoami_with_kubeconfig "${KCONTEXT_INSTALL_KUBECONFIG}")"; then
+			source_kubeconfig="${KCONTEXT_INSTALL_KUBECONFIG}"
+		fi
+	fi
+
+	# 2. Installer shell $KUBECONFIG (full value — may be colon-separated)
+	if [[ -z "${source_kubeconfig}" && -n "${KUBECONFIG:-}" ]]; then
+		tried="${tried} \$KUBECONFIG=${KUBECONFIG}"
+		if whoami="$(oc_whoami_with_kubeconfig "${KUBECONFIG}")"; then
+			source_kubeconfig="${KUBECONFIG}"
+		fi
+	fi
+
+	# 3. Current shell (inherits installer env — same as running `oc whoami` before install)
+	if [[ -z "${source_kubeconfig}" ]]; then
+		tried="${tried} current-shell"
+		if whoami="$(oc whoami 2>/dev/null)"; then
+			if [[ -n "${KUBECONFIG:-}" ]]; then
+				source_kubeconfig="${KUBECONFIG}"
+			else
+				source_kubeconfig="${home}/.kube/config"
+			fi
+		fi
+	fi
+
+	# 4. Login shell — loads profile KUBECONFIG from ~/.bashrc etc.
+	if [[ -z "${source_kubeconfig}" ]]; then
+		tried="${tried} login-shell"
+		if run_as_install_user "${user}" bash -lc 'oc whoami' >/dev/null 2>&1; then
+			whoami="$(run_as_install_user "${user}" bash -lc 'oc whoami')"
+			source_kubeconfig="$(run_as_install_user "${user}" bash -lc 'printf %s "${KUBECONFIG:-$HOME/.kube/config}"')"
+		fi
+	fi
+
+	# 5. Default home kubeconfig
+	if [[ -z "${source_kubeconfig}" ]]; then
+		kc="${home}/.kube/config"
+		tried="${tried} ${kc}"
+		if whoami="$(oc_whoami_with_kubeconfig "${kc}")"; then
+			source_kubeconfig="${kc}"
+		fi
+	fi
+
+	if [[ -z "${source_kubeconfig}" ]]; then
+		echo "ERROR: oc is not logged in for user ${user}" >&2
+		echo "    Tried:${tried}" >&2
+		echo "    Installer KUBECONFIG=${KUBECONFIG:-<unset>}" >&2
+		echo "    Run oc login, export KUBECONFIG, or set KCONTEXT_INSTALL_KUBECONFIG" >&2
+		echo "    Or set ALERTMANAGER_TOKEN_FILE in ${ENV_FILE}" >&2
 		return 1
-	}
-	echo "    oc whoami: ${whoami} (KUBECONFIG=${kubeconfig})"
+	fi
+
+	echo "    oc whoami: ${whoami} (source KUBECONFIG=${source_kubeconfig})"
+
+	echo "==> Materializing kubeconfig for systemd (${SYSTEM_KUBECONFIG})..."
+	materialize_system_kubeconfig "${user}" "${source_kubeconfig}"
+	kubeconfig="${SYSTEM_KUBECONFIG}"
+
+	if ! whoami="$(oc_whoami_with_kubeconfig "${kubeconfig}")"; then
+		echo "ERROR: materialized kubeconfig at ${kubeconfig} is not valid (oc whoami failed)" >&2
+		return 1
+	fi
+	echo "    materialized oc whoami: ${whoami}"
 
 	if ! KUBECONFIG="${kubeconfig}" oc apply -f "${DEPLOY_DEST}" >/dev/null 2>&1; then
 		echo "ERROR: oc apply -f ${DEPLOY_DEST} failed (same step kcontext runs at startup)" >&2
@@ -144,7 +241,6 @@ validate_oc_kubeconfig() {
 	fi
 	echo "    oc apply -f ${DEPLOY_DEST} ok"
 
-	# Stash for install_service_identity
 	KCONTEXT_VALIDATED_KUBECONFIG="${kubeconfig}"
 	KCONTEXT_VALIDATED_USER="${user}"
 	return 0
@@ -232,14 +328,6 @@ set_env_var() {
 		run_root sed -i "s|^${key}=.*|${key}=${value}|" "${file}"
 	else
 		printf '%s=%s\n' "${key}" "${value}" | run_root tee -a "${file}" >/dev/null
-	fi
-}
-
-run_root() {
-	if [[ "${EUID}" -eq 0 ]]; then
-		"$@"
-	else
-		sudo "$@"
 	fi
 }
 

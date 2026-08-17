@@ -83,17 +83,33 @@ sudo systemctl restart kcontext
 | `/usr/local/bin/kcontext` | Installed binary |
 | `/opt/kcontext/deploy/openshift` | OpenShift RBAC manifests (`oc apply -f`) |
 | `/etc/kcontext/kcontext.env` | Environment variables (`EnvironmentFile` in unit) |
+| `/etc/kcontext/kubeconfig` | Flattened kubeconfig for systemd (from installer `$KUBECONFIG` at install time) |
 | `/etc/systemd/system/kcontext.service` | systemd unit |
 | `/etc/systemd/system/kcontext.service.d/install.conf` | Auto-generated `User` / `KUBECONFIG` for `oc` |
 
 ## Local dev with `oc` port-forward
 
-When you run `install-kcontext.sh` (typically via `sudo` from your login), the script writes `/etc/systemd/system/kcontext.service.d/install.conf` with:
+When you run `install-kcontext.sh`, the script detects a working `oc` login using:
 
-- `User` / `Group` — the user who invoked `sudo` (or `KCONTEXT_INSTALL_USER`)
-- `KUBECONFIG` — `~/.kube/config` for that user (or `KCONTEXT_INSTALL_KUBECONFIG`)
+1. `KCONTEXT_INSTALL_KUBECONFIG` (if set)
+2. **`$KUBECONFIG` from your shell** (full value, including colon-separated paths)
+3. `oc whoami` in the current shell
+4. Login shell / `~/.kube/config` fallback
+
+It materializes credentials to `/etc/kcontext/kubeconfig` and writes `/etc/systemd/system/kcontext.service.d/install.conf` with:
+
+- `User` / `Group` — the install user (`SUDO_USER`, `KCONTEXT_INSTALL_USER`, or `root`)
+- `KUBECONFIG` — `/etc/kcontext/kubeconfig`
 
 Override manually:
+
+```bash
+export KUBECONFIG=/path/to/your/kubeconfig   # or export before install
+oc login ...
+./utils/install-kcontext.sh
+```
+
+Or:
 
 ```bash
 export KCONTEXT_INSTALL_USER=youruser
