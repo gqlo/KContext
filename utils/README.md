@@ -31,8 +31,11 @@ That script:
 5. Creates `/etc/kcontext/kcontext.env` from `kcontext.env.example` **only if it does not exist**
 6. Sets `KCONTEXT_DEPLOY_DIR=/opt/kcontext/deploy/openshift` in the env file (every install)
 7. Installs `kcontext.service` to `/etc/systemd/system/`
-8. Runs `systemctl daemon-reload`, `enable`, and `restart` (or `start` if not running)
-9. Prints `systemctl status`
+8. Validates prerequisites (`oc whoami`, `oc apply` RBAC when polling needs `oc`; token file when set)
+9. Runs `systemctl daemon-reload`, `enable`, and `restart` (or `start` if not running)
+10. Waits until the service stays active for 8+ seconds, then prints `systemctl status`
+
+Install **fails with an error** (not just a warning) if kubeconfig is missing, `oc` is not logged in, RBAC apply fails, or the service crashes on startup.
 
 Open [http://localhost:8083/](http://localhost:8083/) (or your `LISTEN_ADDR`).
 
