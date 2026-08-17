@@ -112,10 +112,9 @@ func TestAlertFilters_matchDate_customDays(t *testing.T) {
 }
 
 func TestAlertFilters_matchDate_fromTo(t *testing.T) {
-	loc := time.Now().Location()
-	mid := time.Date(2026, 6, 15, 12, 0, 0, 0, loc)
-	before := time.Date(2026, 6, 15, 9, 0, 0, 0, loc)
-	after := time.Date(2026, 6, 15, 15, 0, 0, 0, loc)
+	mid := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	before := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	after := time.Date(2026, 6, 15, 15, 0, 0, 0, time.UTC)
 
 	alertMid := sampleAlert("1", "info", "firing", "webhook", "ns", "A", mid)
 	alertBefore := sampleAlert("2", "info", "firing", "webhook", "ns", "B", before)
@@ -136,6 +135,36 @@ func TestAlertFilters_matchDate_fromTo(t *testing.T) {
 	}
 }
 
+func TestAlertFilters_matchDate_fromToRFC3339(t *testing.T) {
+	alert := sampleAlert("1", "info", "firing", "webhook", "ns", "A",
+		time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC))
+
+	f := kcontext.AlertFilters{
+		From: "2026-06-15T10:00:00Z",
+		To:   "2026-06-15T14:00:00Z",
+	}
+	if !f.Match(alert) {
+		t.Error("RFC3339 UTC from/to should match alert in window")
+	}
+}
+
+func TestAlertFilters_matchDate_todayUTC(t *testing.T) {
+	now := time.Now().UTC()
+	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	yesterday := startToday.Add(-1 * time.Hour)
+
+	alertToday := sampleAlert("1", "info", "firing", "webhook", "ns", "A", startToday.Add(2*time.Hour))
+	alertYesterday := sampleAlert("2", "info", "firing", "webhook", "ns", "B", yesterday)
+
+	f := kcontext.AlertFilters{DateRange: "today"}
+	if !f.Match(alertToday) {
+		t.Error("alert from today UTC should match today filter")
+	}
+	if f.Match(alertYesterday) {
+		t.Error("alert before UTC midnight should not match today filter")
+	}
+}
+
 func TestAlertFilters_customDateHelpers(t *testing.T) {
 	f := kcontext.AlertFilters{Days: 5}
 	if f.DateRangeSelect() != "custom" || !f.CustomDateOpen() || f.CustomDateMode() != "days" {
@@ -143,8 +172,16 @@ func TestAlertFilters_customDateHelpers(t *testing.T) {
 	}
 
 	f2 := kcontext.AlertFilters{From: "2026-06-01", To: "2026-06-15"}
-	if f2.CustomDateMode() != "calendar" || f2.FromDate() != "2026-06-01" {
-		t.Fatalf("calendar custom = mode %q from %q", f2.CustomDateMode(), f2.FromDate())
+	if f2.CustomDateMode() != "calendar" || f2.FromDate() != "2026-06-01T00:00" || f2.ToDate() != "2026-06-15T23:59" {
+		t.Fatalf("calendar custom = mode %q from %q to %q", f2.CustomDateMode(), f2.FromDate(), f2.ToDate())
+	}
+
+	f3 := kcontext.AlertFilters{From: "2026-06-15T10:30", To: "2026-06-15T14:45"}
+	if f3.FromDate() != "2026-06-15T10:30" || f3.ToDate() != "2026-06-15T14:45" {
+		t.Fatalf("datetime custom = from %q to %q", f3.FromDate(), f3.ToDate())
+	}
+	if f3.FromDateOnly() != "2026-06-15" || f3.FromTimeOnly() != "10:30" || f3.ToTimeOnly() != "14:45" {
+		t.Fatalf("datetime parts = from %q %q to %q %q", f3.FromDateOnly(), f3.FromTimeOnly(), f3.ToDateOnly(), f3.ToTimeOnly())
 	}
 
 	enc := f.Encode()

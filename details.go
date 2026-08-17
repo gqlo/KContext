@@ -16,6 +16,7 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
 	"fmtISO":      FormatTimeISO,
 	"hasPrefix":   strings.HasPrefix,
 	"headerIntro": headerIntro,
+	"utcClock":    utcClock,
 }).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,6 +48,13 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
       border-bottom: 1px solid var(--border);
       background: var(--card);
     }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
     header h1 { margin: 0; font-size: 1.25rem; }
     header h1 a { color: inherit; text-decoration: none; }
     header h1 a:hover { color: var(--link); }
@@ -59,6 +67,30 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
     header .does strong { color: var(--text); font-weight: 600; }
     header .repo a { color: var(--link); text-decoration: none; }
     header .repo a:hover { text-decoration: underline; }
+    .utc-clock {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #f6f8fa;
+      font-size: 0.8125rem;
+      white-space: nowrap;
+    }
+    .utc-clock-label {
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+    .utc-clock-time {
+      font-family: ui-monospace, monospace;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+      font-weight: 600;
+    }
     main { padding: 1rem 1.5rem 1.5rem; width: 100%; max-width: none; margin: 0; }
     .back { display: inline-block; margin-bottom: 1rem; color: var(--link); text-decoration: none; font-size: 0.875rem; }
     .back:hover { text-decoration: underline; }
@@ -105,7 +137,10 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
 </head>
 <body>
   <header>
-    <h1><a href="/" title="Clear all filters">KContext</a></h1>
+    <div class="header-top">
+      <h1><a href="/" title="Clear all filters">KContext</a></h1>
+      {{utcClock}}
+    </div>
     {{headerIntro}}
     <p class="meta">Alert detail</p>
   </header>
@@ -173,7 +208,7 @@ var alertDetailTemplate = template.Must(template.New("alert-detail").Funcs(templ
       </table>
     </div>
   </main>
-  <script>` + RelativeTimeRefreshJS + `</script>
+  <script>` + UTCClockRefreshJS + RelativeTimeRefreshJS + `</script>
 </body>
 </html>`))
 

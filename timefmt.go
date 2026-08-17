@@ -110,6 +110,30 @@ func normalizeReceivedAt(stored StoredAlert, rawJSON []byte) StoredAlert {
 	return stored
 }
 
+// UTCClockRefreshJS updates the header UTC clock every second (browser UTC).
+const UTCClockRefreshJS = `
+(function () {
+  function formatUTCNow() {
+    var now = new Date();
+    var y = now.getUTCFullYear();
+    var m = String(now.getUTCMonth() + 1).padStart(2, '0');
+    var d = String(now.getUTCDate()).padStart(2, '0');
+    var h = String(now.getUTCHours()).padStart(2, '0');
+    var min = String(now.getUTCMinutes()).padStart(2, '0');
+    var sec = String(now.getUTCSeconds()).padStart(2, '0');
+    return y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + sec;
+  }
+  function refreshUTCClock() {
+    var el = document.getElementById('utc-clock-time');
+    if (!el) return;
+    el.textContent = formatUTCNow();
+    el.setAttribute('datetime', new Date().toISOString());
+  }
+  refreshUTCClock();
+  setInterval(refreshUTCClock, 1000);
+})();
+`
+
 // RelativeTimeRefreshJS updates <time class="relative-time"> labels in the browser.
 const RelativeTimeRefreshJS = `
 (function () {

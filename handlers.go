@@ -18,6 +18,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
 	"fmtTime":     FormatAlertTime,
 	"fmtISO":      FormatTimeISO,
 	"headerIntro": headerIntro,
+	"utcClock":    utcClock,
 }).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,6 +54,13 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       background: var(--card);
       box-shadow: 0 1px 0 rgba(27,31,36,0.04);
     }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
     header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
     header h1 a {
       color: inherit;
@@ -68,6 +76,30 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
     header .does strong { color: var(--text); font-weight: 600; }
     header .repo a { color: var(--link); text-decoration: none; }
     header .repo a:hover { text-decoration: underline; }
+    .utc-clock {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #f6f8fa;
+      font-size: 0.8125rem;
+      white-space: nowrap;
+    }
+    .utc-clock-label {
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+    .utc-clock-time {
+      font-family: ui-monospace, monospace;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+      font-weight: 600;
+    }
     .page-body {
       display: flex;
       gap: 1.25rem;
@@ -199,6 +231,19 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       padding: 0.4rem 0.6rem;
       font-size: 0.875rem;
     }
+    .datetime-range-inputs {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .field input.time-24h {
+      width: 4.75rem;
+      min-width: 4.75rem;
+      font-family: ui-monospace, monospace;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
     .custom-date-panel {
       display: none;
       flex-basis: 100%;
@@ -292,7 +337,10 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
 </head>
 <body>
   <header>
-    <h1><a href="/" title="Clear all filters">KContext</a></h1>
+    <div class="header-top">
+      <h1><a href="/" title="Clear all filters">KContext</a></h1>
+      {{utcClock}}
+    </div>
     {{headerIntro}}
     <p class="meta">{{if gt .Filtered 0}}Showing {{.PageStart}}–{{.PageEnd}} of {{.Filtered}} alert(s){{if lt .Filtered .Total}} · {{.Total}} total stored{{end}}{{else}}No alerts match the current filters{{end}} · newest first</p>
   </header>
@@ -365,7 +413,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         <label for="range">Date</label>
         <select id="range" name="range">
           <option value="">All time</option>
-          <option value="today" {{if eq .Filters.DateRange "today"}}selected{{end}}>Today</option>
+          <option value="today" {{if eq .Filters.DateRange "today"}}selected{{end}}>Today (UTC)</option>
           <option value="7d" {{if eq .Filters.DateRange "7d"}}selected{{end}}>Past 7 days</option>
           <option value="14d" {{if eq .Filters.DateRange "14d"}}selected{{end}}>Past 14 days</option>
           <option value="30d" {{if eq .Filters.DateRange "30d"}}selected{{end}}>Past 30 days</option>
@@ -375,7 +423,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       <div id="custom-date-panel" class="custom-date-panel{{if .Filters.CustomDateOpen}} open{{end}}">
         <div class="custom-date-tabs">
           <label><input type="radio" name="custom_mode" value="days" {{if eq .Filters.CustomDateMode "days"}}checked{{end}}> Past N days</label>
-          <label><input type="radio" name="custom_mode" value="calendar" {{if eq .Filters.CustomDateMode "calendar"}}checked{{end}}> Calendar range</label>
+          <label><input type="radio" name="custom_mode" value="calendar" {{if eq .Filters.CustomDateMode "calendar"}}checked{{end}}> Date & time range</label>
         </div>
         <div id="custom-days-body" class="custom-date-body{{if eq .Filters.CustomDateMode "calendar"}} hidden{{end}}">
           <div class="field">
@@ -385,12 +433,20 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         </div>
         <div id="custom-calendar-body" class="custom-date-body{{if eq .Filters.CustomDateMode "days"}} hidden{{end}}">
           <div class="field">
-            <label for="from">From</label>
-            <input id="from" type="date" name="from" value="{{.Filters.FromDate}}">
+            <label for="from-date">From (UTC)</label>
+            <div class="datetime-range-inputs">
+              <input id="from-date" type="date" value="{{.Filters.FromDateOnly}}">
+              <input id="from-time" type="text" class="time-24h" value="{{.Filters.FromTimeOnly}}" placeholder="HH:MM" maxlength="5" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="24-hour time (HH:MM)" autocomplete="off">
+              <input id="from" type="hidden" name="from" value="{{.Filters.FromDate}}">
+            </div>
           </div>
           <div class="field">
-            <label for="to">To</label>
-            <input id="to" type="date" name="to" value="{{.Filters.ToDate}}">
+            <label for="to-date">To (UTC)</label>
+            <div class="datetime-range-inputs">
+              <input id="to-date" type="date" value="{{.Filters.ToDateOnly}}">
+              <input id="to-time" type="text" class="time-24h" value="{{.Filters.ToTimeOnly}}" placeholder="HH:MM" maxlength="5" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="24-hour time (HH:MM)" autocomplete="off">
+              <input id="to" type="hidden" name="to" value="{{.Filters.ToDate}}">
+            </div>
           </div>
         </div>
         <button type="submit" id="apply-dates">Apply</button>
@@ -483,8 +539,67 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       var days = document.getElementById('days');
       var from = document.getElementById('from');
       var to = document.getElementById('to');
+      var fromDate = document.getElementById('from-date');
+      var fromTime = document.getElementById('from-time');
+      var toDate = document.getElementById('to-date');
+      var toTime = document.getElementById('to-time');
       var applyDates = document.getElementById('apply-dates');
       var modeRadios = form.querySelectorAll('input[name="custom_mode"]');
+      var time24Pattern = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+      function isValidTime24(value) {
+        return time24Pattern.test((value || '').trim());
+      }
+
+      function combineDateTime(dateEl, timeEl, defaultTime) {
+        if (!dateEl || !dateEl.value) return '';
+        var time = (timeEl && timeEl.value.trim()) || defaultTime;
+        if (!isValidTime24(time)) return '';
+        return dateEl.value + 'T' + time;
+      }
+
+      function syncFromToHidden() {
+        if (from) from.value = combineDateTime(fromDate, fromTime, '00:00');
+        if (to) to.value = combineDateTime(toDate, toTime, '23:59');
+      }
+
+      function pad2(n) {
+        return String(n).padStart(2, '0');
+      }
+
+      function utcDateValue(d) {
+        return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+      }
+
+      function utcTimeValue(d) {
+        return pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+      }
+
+      function calendarRangeIsEmpty() {
+        return !(fromDate && fromDate.value) && !(fromTime && fromTime.value.trim()) &&
+          !(toDate && toDate.value) && !(toTime && toTime.value.trim()) &&
+          !(from && from.value) && !(to && to.value);
+      }
+
+      function setDefaultCalendarRange() {
+        if (!calendarRangeIsEmpty()) return;
+        var now = new Date();
+        var fromMs = new Date(now.getTime() - 30 * 60 * 1000);
+        if (fromDate) fromDate.value = utcDateValue(fromMs);
+        if (fromTime) fromTime.value = utcTimeValue(fromMs);
+        if (toDate) toDate.value = utcDateValue(now);
+        if (toTime) toTime.value = utcTimeValue(now);
+        syncFromToHidden();
+      }
+
+      function setCalendarInputsDisabled(disabled) {
+        if (from) from.disabled = disabled;
+        if (to) to.disabled = disabled;
+        if (fromDate) fromDate.disabled = disabled;
+        if (fromTime) fromTime.disabled = disabled;
+        if (toDate) toDate.disabled = disabled;
+        if (toTime) toTime.disabled = disabled;
+      }
 
       function isCustomRange() {
         return range && range.value === 'custom';
@@ -510,26 +625,28 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         if (days) days.value = '';
         if (from) from.value = '';
         if (to) to.value = '';
+        if (fromDate) fromDate.value = '';
+        if (fromTime) fromTime.value = '';
+        if (toDate) toDate.value = '';
+        if (toTime) toTime.value = '';
       }
 
       function prepareCustomSubmit() {
         if (range) range.value = 'custom';
         var mode = customMode();
         if (mode === 'days') {
-          if (from) { from.value = ''; from.disabled = true; }
-          if (to) { to.value = ''; to.disabled = true; }
+          setCalendarInputsDisabled(true);
           if (days) days.disabled = false;
         } else {
           if (days) { days.value = ''; days.disabled = true; }
-          if (from) from.disabled = false;
-          if (to) to.disabled = false;
+          setCalendarInputsDisabled(false);
+          syncFromToHidden();
         }
       }
 
       function enableCustomInputs() {
         if (days) days.disabled = false;
-        if (from) from.disabled = false;
-        if (to) to.disabled = false;
+        setCalendarInputsDisabled(false);
       }
 
       form.querySelectorAll('select').forEach(function (el) {
@@ -539,6 +656,9 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
               showPanel(true);
               syncModePanels();
               enableCustomInputs();
+              if (customMode() === 'calendar') {
+                setDefaultCalendarRange();
+              }
               return;
             }
             showPanel(false);
@@ -549,7 +669,12 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
       });
 
       modeRadios.forEach(function (radio) {
-        radio.addEventListener('change', syncModePanels);
+        radio.addEventListener('change', function () {
+          syncModePanels();
+          if (radio.value === 'calendar' && radio.checked) {
+            setDefaultCalendarRange();
+          }
+        });
       });
 
       if (applyDates) {
@@ -560,9 +685,18 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         });
       }
 
+      form.addEventListener('submit', function () {
+        if (customMode() === 'calendar') {
+          syncFromToHidden();
+        }
+      });
+
       if (isCustomRange()) {
         showPanel(true);
         syncModePanels();
+        if (customMode() === 'calendar') {
+          setDefaultCalendarRange();
+        }
       }
 
       var alertname = document.getElementById('alertname');
@@ -572,7 +706,7 @@ var alertsTemplate = template.Must(template.New("alerts").Funcs(template.FuncMap
         });
       }
     })();
-` + RelativeTimeRefreshJS + `
+` + UTCClockRefreshJS + RelativeTimeRefreshJS + `
   </script>
 </body>
 </html>`))

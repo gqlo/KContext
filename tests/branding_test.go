@@ -14,6 +14,9 @@ func assertHeaderIntro(t *testing.T, body string) {
 	t.Helper()
 
 	for _, want := range []string{
+		"id=\"utc-clock-time\"",
+		"class=\"utc-clock-label\"",
+		">UTC</span>",
 		"OpenShift Virtualization Performance and Scale",
 		"What it is:",
 		"persistent alert history",
