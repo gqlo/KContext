@@ -44,6 +44,16 @@ Open [http://localhost:8083/](http://localhost:8083/).
 
 Polling defaults to `https://localhost:9094` and starts `oc port-forward` automatically. See [docs/alert-polling.md](docs/alert-polling.md) for API details, OpenShift RBAC, and manual testing.
 
+## Run as a systemd service
+
+To build, install, and restart as a background service on Linux:
+
+```bash
+./utils/install-kcontext.sh
+```
+
+Re-run the same command after code changes — it rebuilds, overwrites `/usr/local/bin/kcontext`, and restarts the service. See [utils/README.md](utils/README.md) for options, configuration, and `oc` port-forward notes.
+
 ## Documentation
 
 | Doc | Description |
@@ -52,6 +62,7 @@ Polling defaults to `https://localhost:9094` and starts `oc port-forward` automa
 | [alert-flow.md](docs/alert-flow.md) | Poll vs webhook ingest paths |
 | [webhook-ingest.md](docs/webhook-ingest.md) | Alertmanager webhook receiver and testing |
 | [configuration.md](docs/configuration.md) | Environment variables |
+| [utils/README.md](utils/README.md) | systemd install script and service setup |
 | [endpoints.md](docs/endpoints.md) | HTTP routes |
 | [dashboard.md](docs/dashboard.md) | Dashboard UI, filters, and pagination |
 | [alert-polling.md](docs/alert-polling.md) | Alertmanager poll API, OpenShift RBAC, dedup |
