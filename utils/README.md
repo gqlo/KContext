@@ -27,10 +27,12 @@ That script:
 1. Runs `go test ./...` (unless `--no-test`)
 2. Builds `./cmd/kcontext` into a temporary binary
 3. Installs the binary to `/usr/local/bin/kcontext` (replaces an existing install)
-4. Creates `/etc/kcontext/kcontext.env` from `kcontext.env.example` **only if it does not exist**
-5. Installs `kcontext.service` to `/etc/systemd/system/`
-6. Runs `systemctl daemon-reload`, `enable`, and `restart` (or `start` if not running)
-7. Prints `systemctl status`
+4. Copies `deploy/openshift/` to `/opt/kcontext/deploy/openshift`
+5. Creates `/etc/kcontext/kcontext.env` from `kcontext.env.example` **only if it does not exist**
+6. Sets `KCONTEXT_DEPLOY_DIR=/opt/kcontext/deploy/openshift` in the env file (every install)
+7. Installs `kcontext.service` to `/etc/systemd/system/`
+8. Runs `systemctl daemon-reload`, `enable`, and `restart` (or `start` if not running)
+9. Prints `systemctl status`
 
 Open [http://localhost:8083/](http://localhost:8083/) (or your `LISTEN_ADDR`).
 
@@ -42,9 +44,9 @@ Run the same script again:
 ./utils/install-kcontext.sh
 ```
 
-Each run **rebuilds** from the current repo and **overwrites** `/usr/local/bin/kcontext` via `install` (no separate uninstall). The service is restarted so the new binary is loaded.
+Each run **rebuilds** from the current repo and **overwrites** `/usr/local/bin/kcontext` via `install` (no separate uninstall). OpenShift RBAC manifests are refreshed under `/opt/kcontext/deploy/openshift`. The service is restarted so the new binary is loaded.
 
-`kcontext.env` is **not** overwritten on updates.
+Other `kcontext.env` settings are **not** overwritten on updates (only `KCONTEXT_DEPLOY_DIR` is refreshed).
 
 ## Script options
 
@@ -76,6 +78,7 @@ sudo systemctl restart kcontext
 | Path | Description |
 |------|-------------|
 | `/usr/local/bin/kcontext` | Installed binary |
+| `/opt/kcontext/deploy/openshift` | OpenShift RBAC manifests (`oc apply -f`) |
 | `/etc/kcontext/kcontext.env` | Environment variables (`EnvironmentFile` in unit) |
 | `/etc/systemd/system/kcontext.service` | systemd unit |
 

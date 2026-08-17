@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 BIN_DEST="/usr/local/bin/kcontext"
+DEPLOY_DEST="/opt/kcontext/deploy/openshift"
 ENV_DIR="/etc/kcontext"
 ENV_FILE="${ENV_DIR}/kcontext.env"
 SYSTEMD_UNIT="/etc/systemd/system/kcontext.service"
@@ -25,8 +26,22 @@ Options:
   -h, --help       Show this help
 
 First run creates ${ENV_FILE} from kcontext.env.example if missing.
-An existing env file is never overwritten.
+An existing env file is never overwritten (except KCONTEXT_DEPLOY_DIR is refreshed each install).
 EOF
+}
+
+set_env_var() {
+	local file="$1"
+	local key="$2"
+	local value="$3"
+	if ! run_root test -f "${file}"; then
+		return
+	fi
+	if run_root grep -q "^${key}=" "${file}"; then
+		run_root sed -i "s|^${key}=.*|${key}=${value}|" "${file}"
+	else
+		printf '%s=%s\n' "${key}" "${value}" | run_root tee -a "${file}" >/dev/null
+	fi
 }
 
 run_root() {
@@ -79,6 +94,14 @@ echo "==> Installing binary to ${BIN_DEST}..."
 run_root install -m 0755 "${BUILD_OUTPUT}" "${BIN_DEST}"
 rm -f "${BUILD_OUTPUT}"
 
+echo "==> Installing OpenShift RBAC manifests to ${DEPLOY_DEST}..."
+if [[ ! -d "${REPO_ROOT}/deploy/openshift" ]]; then
+	echo "deploy/openshift not found in ${REPO_ROOT}" >&2
+	exit 1
+fi
+run_root install -d -m 0755 "${DEPLOY_DEST}"
+run_root cp -a "${REPO_ROOT}/deploy/openshift/." "${DEPLOY_DEST}/"
+
 echo "==> Installing config and systemd unit..."
 run_root install -d -m 0750 "${ENV_DIR}"
 if [[ -f "${ENV_FILE}" ]]; then
@@ -87,6 +110,8 @@ else
 	run_root install -m 0640 "${SCRIPT_DIR}/kcontext.env.example" "${ENV_FILE}"
 	echo "    Created ${ENV_FILE} from example — edit before production use"
 fi
+set_env_var "${ENV_FILE}" KCONTEXT_DEPLOY_DIR "${DEPLOY_DEST}"
+echo "    Set KCONTEXT_DEPLOY_DIR=${DEPLOY_DEST}"
 run_root install -m 0644 "${SCRIPT_DIR}/kcontext.service" "${SYSTEMD_UNIT}"
 
 echo "==> Reloading systemd..."
