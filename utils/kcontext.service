@@ -1,0 +1,21 @@
+# Install: utils/install-kcontext.sh
+
+[Unit]
+Description=KContext alert triage dashboard
+Documentation=https://github.com/gqlo/KContext/blob/main/README.md
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/kcontext/kcontext.env
+ExecStart=/usr/local/bin/kcontext
+Restart=on-failure
+RestartSec=5
+# Raise if you store many alerts in Redis snapshot cache.
+# LimitNOFILE=65536
+
+# User/Group/KUBECONFIG: install-kcontext.sh writes systemd drop-in install.conf when oc login exists
+
+[Install]
+WantedBy=multi-user.target

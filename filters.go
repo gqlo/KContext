@@ -22,7 +22,7 @@ type AlertFilters struct {
 	DateRange string
 	Date      string // legacy single-day filter (YYYY-MM-DD)
 	Days      int    // past N days (overrides DateRange presets when > 0)
-	From      string // start of time window (datetime-local, date, or RFC3339)
+	From      string // start of time window (YYYY-MM-DD, YYYY-MM-DDTHH:MM, or RFC3339)
 	To        string // end of time window
 	Namespace string
 	Alertname string
@@ -65,11 +65,25 @@ func (d AlertsPageData) PrevPageLink() string {
 	return d.PageLink(d.Page - 1)
 }
 
+func (d AlertsPageData) FirstPageLink() string {
+	if d.Page <= 1 {
+		return ""
+	}
+	return d.PageLink(1)
+}
+
 func (d AlertsPageData) NextPageLink() string {
 	if d.Page >= d.TotalPages {
 		return ""
 	}
 	return d.PageLink(d.Page + 1)
+}
+
+func (d AlertsPageData) LastPageLink() string {
+	if d.Page >= d.TotalPages || d.TotalPages <= 1 {
+		return ""
+	}
+	return d.PageLink(d.TotalPages)
 }
 
 func (d AlertsPageData) NamespaceLink(ns string) string {
@@ -93,6 +107,14 @@ func (AlertFilters) NoneNamespaceFilterValue() string {
 
 func (d AlertsPageData) AlertDetailLink(id string) string {
 	return "/alert?id=" + url.QueryEscape(id) + "&" + d.Filters.Encode()
+}
+
+// StatsKey identifies filter parameters that affect counts and sidebar stats (not page).
+func (f AlertFilters) StatsKey() string {
+	ff := f
+	ff.Page = 0
+	ff.PerPage = 0
+	return ff.Encode()
 }
 
 func (f AlertFilters) Encode() string {
@@ -259,22 +281,67 @@ func (f AlertFilters) CustomDateMode() string {
 	return "days"
 }
 
-// FromDate returns the From filter as YYYY-MM-DD for date inputs.
+// FromDate returns the From filter as YYYY-MM-DDTHH:MM for hidden form fields.
 func (f AlertFilters) FromDate() string {
-	return dateOnlyValue(f.From)
+	return formatFilterDateTime(f.From, false)
 }
 
-// ToDate returns the To filter as YYYY-MM-DD for date inputs.
+// ToDate returns the To filter as YYYY-MM-DDTHH:MM for hidden form fields.
 func (f AlertFilters) ToDate() string {
-	return dateOnlyValue(f.To)
+	return formatFilterDateTime(f.To, true)
 }
 
-func dateOnlyValue(s string) string {
-	s = strings.TrimSpace(s)
+// FromDateOnly returns the From date part (YYYY-MM-DD) for date inputs.
+func (f AlertFilters) FromDateOnly() string {
+	return filterDatePart(formatFilterDateTime(f.From, false))
+}
+
+// FromTimeOnly returns the From time part (HH:MM, 24-hour) for time inputs.
+func (f AlertFilters) FromTimeOnly() string {
+	return filterTimePart(formatFilterDateTime(f.From, false))
+}
+
+// ToDateOnly returns the To date part (YYYY-MM-DD) for date inputs.
+func (f AlertFilters) ToDateOnly() string {
+	return filterDatePart(formatFilterDateTime(f.To, true))
+}
+
+// ToTimeOnly returns the To time part (HH:MM, 24-hour) for time inputs.
+func (f AlertFilters) ToTimeOnly() string {
+	return filterTimePart(formatFilterDateTime(f.To, true))
+}
+
+func filterDatePart(s string) string {
 	if len(s) >= 10 {
 		return s[:10]
 	}
-	return s
+	return ""
+}
+
+func filterTimePart(s string) string {
+	if len(s) >= 16 {
+		return s[11:16]
+	}
+	return ""
+}
+
+func formatFilterDateTime(raw string, end bool) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	t, ok := parseFilterTime(raw, end)
+	if !ok {
+		if len(raw) >= 10 {
+			day := raw[:10]
+			if end {
+				return day + "T23:59"
+			}
+			return day + "T00:00"
+		}
+		return raw
+	}
+	return t.UTC().Format("2006-01-02T15:04")
 }
 
 func (f AlertFilters) Active() bool {
@@ -309,16 +376,15 @@ func (f AlertFilters) Match(a StoredAlert) bool {
 }
 
 func (f AlertFilters) matchDate(received time.Time) bool {
-	loc := time.Now().Location()
-	receivedLocal := received.In(loc)
+	receivedUTC := received.UTC()
 
 	if from, ok := parseFilterTime(f.From, false); ok {
-		if receivedLocal.Before(from) {
+		if receivedUTC.Before(from) {
 			return false
 		}
 	}
 	if to, ok := parseFilterTime(f.To, true); ok {
-		if receivedLocal.After(to) {
+		if receivedUTC.After(to) {
 			return false
 		}
 	}
@@ -327,11 +393,11 @@ func (f AlertFilters) matchDate(received time.Time) bool {
 	}
 
 	if f.Days > 0 {
-		cutoff := time.Now().Add(-time.Duration(f.Days) * 24 * time.Hour)
-		return !received.Before(cutoff)
+		cutoff := time.Now().UTC().Add(-time.Duration(f.Days) * 24 * time.Hour)
+		return !receivedUTC.Before(cutoff)
 	}
 
-	now := time.Now().In(loc)
+	now := time.Now().UTC()
 
 	switch f.DateRange {
 	case "", "all":
@@ -339,14 +405,14 @@ func (f AlertFilters) matchDate(received time.Time) bool {
 			return true
 		}
 	case "today":
-		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-		return !receivedLocal.Before(start)
+		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		return !receivedUTC.Before(start)
 	case "7d":
-		return received.After(time.Now().Add(-7 * 24 * time.Hour))
+		return receivedUTC.After(now.Add(-7 * 24 * time.Hour))
 	case "14d":
-		return received.After(time.Now().Add(-14 * 24 * time.Hour))
+		return receivedUTC.After(now.Add(-14 * 24 * time.Hour))
 	case "30d":
-		return received.After(time.Now().Add(-30 * 24 * time.Hour))
+		return receivedUTC.After(now.Add(-30 * 24 * time.Hour))
 	case "custom":
 		return true
 	default:
@@ -356,34 +422,28 @@ func (f AlertFilters) matchDate(received time.Time) bool {
 	if f.Date == "" {
 		return true
 	}
-	day, err := time.ParseInLocation("2006-01-02", f.Date, loc)
+	day, err := time.ParseInLocation("2006-01-02", f.Date, time.UTC)
 	if err != nil {
 		return false
 	}
 	start := day
 	end := start.Add(24 * time.Hour)
-	return !receivedLocal.Before(start) && receivedLocal.Before(end)
+	return !receivedUTC.Before(start) && receivedUTC.Before(end)
 }
 
-// parseFilterTime parses from/to query values. end=true expands date-only and minute values to inclusive upper bounds.
+// parseFilterTime parses from/to query values as UTC. end=true expands date-only and minute values to inclusive upper bounds.
 func parseFilterTime(raw string, end bool) (time.Time, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return time.Time{}, false
 	}
 
-	loc := time.Now().Location()
 	try := []struct {
 		layout string
 		adjust func(time.Time) time.Time
 	}{
-		{time.RFC3339, func(t time.Time) time.Time { return t }},
-		{"2006-01-02T15:04:05", func(t time.Time) time.Time {
-			if end {
-				return t
-			}
-			return t
-		}},
+		{time.RFC3339, func(t time.Time) time.Time { return t.UTC() }},
+		{"2006-01-02T15:04:05", func(t time.Time) time.Time { return t }},
 		{"2006-01-02T15:04", func(t time.Time) time.Time {
 			if end {
 				return t.Add(time.Minute - time.Nanosecond)
@@ -399,9 +459,9 @@ func parseFilterTime(raw string, end bool) (time.Time, bool) {
 	}
 
 	for _, item := range try {
-		t, err := time.ParseInLocation(item.layout, raw, loc)
+		t, err := time.ParseInLocation(item.layout, raw, time.UTC)
 		if err == nil {
-			return item.adjust(t), true
+			return item.adjust(t).UTC(), true
 		}
 	}
 	return time.Time{}, false

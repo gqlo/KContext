@@ -1,12 +1,15 @@
 # How alerts flow
 
-```mermaid
-flowchart LR
-  AM[Alertmanager] -->|poll| Poller[alertmanager.go]
-  AM -->|POST /webhook| Webhook[handlers.go]
-  Poller --> Store[(Redis)]
-  Webhook --> Store
-  Store --> Dashboard[GET /]
+```text
+  Alertmanager ---- poll --------> alertmanager.go ----+
+       |                                               |
+       +------ POST /webhook ----> handlers.go --------+
+                                                       |
+                                                       v
+                                                    Redis
+                                                       |
+                                                       v
+                                                 Dashboard GET /
 ```
 
 KContext supports two complementary ingest paths:
@@ -16,11 +19,15 @@ KContext supports two complementary ingest paths:
 
 Both paths write to the same Redis store and appear on the same dashboard. Poll and webhook alerts are tagged with `source: poll` or `source: webhook` respectively.
 
+For a full walkthrough of how modules connect (startup, Redis keys, `oc`, Slack, dashboard), see [architecture.md](architecture.md).
+
 ## Related
 
 | Topic | Example |
 |-------|---------|
+| How pieces connect (overview) | [architecture.md](architecture.md) |
 | Webhook receiver config and testing | [webhook-ingest.md](webhook-ingest.md) |
 | Poll API and OpenShift RBAC | [alert-polling.md](alert-polling.md) |
+| VM alert context (design) | [vm-context.md](vm-context.md) |
 | HTTP routes | [endpoints.md](endpoints.md) |
 | Dashboard filters | [dashboard.md](dashboard.md) |

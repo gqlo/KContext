@@ -50,6 +50,18 @@ export ALERTMANAGER_TLS_INSECURE=true
 export ALERTMANAGER_PORT_FORWARD=false
 ```
 
+## Example: systemd (Linux)
+
+Use `utils/install-kcontext.sh` to build and install the service, or configure manually:
+
+```bash
+# Env file: /etc/kcontext/kcontext.env (see utils/kcontext.env.example)
+export REDIS_ADDR=localhost:6379
+export LISTEN_ADDR=:8083
+```
+
+See [utils/README.md](../utils/README.md) for install, updates, and `oc` port-forward setup.
+
 ## Example: webhook test helper
 
 `docs/test-webhook.sh` accepts `KCONTEXT_URL` (default `http://localhost:8083`).

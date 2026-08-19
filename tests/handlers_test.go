@@ -123,6 +123,39 @@ func TestHandleAlertsPage_methodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleAlertsPage_paginationLastLink(t *testing.T) {
+	s := testServer(t)
+	ctx := context.Background()
+	for i := 0; i < 201; i++ {
+		if err := s.Store().Save(ctx, kcontext.Alert{
+			Status: "firing",
+			Labels: map[string]string{
+				"alertname": "PaginateTest",
+				"severity":  "info",
+				"namespace": "demo",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	s.HandleAlertsPage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `href="/?page=2">Last</a>`) {
+		t.Error("page 1 should link Last to the final page")
+	}
+	if strings.Count(body, `class="disabled">Last</span>`) != 0 {
+		t.Error("page 1 should not disable Last")
+	}
+}
+
 func TestSlackEnabled(t *testing.T) {
 	s := kcontext.NewServer(nil, "", "")
 	if s.SlackEnabled() {

@@ -1,6 +1,8 @@
 # KContext
 
-Collect operational context from OpenShift / Kubernetes clusters — logs, alerts, and error signals — and package it for humans or AI-assisted triage.
+**Repository:** [github.com/gqlo/KContext](https://github.com/gqlo/KContext)
+
+Ingest OpenShift / Kubernetes Alertmanager alerts, store them in Redis, and browse them on a filterable HTML dashboard — with optional Slack notifications and cluster context via `oc`.
 
 When something fires, operators need more than the alert text. KContext gathers surrounding signals into a structured bundle so you can debug faster or hand off a concise summary to an LLM.
 
@@ -42,16 +44,29 @@ Open [http://localhost:8083/](http://localhost:8083/).
 
 Polling defaults to `https://localhost:9094` and starts `oc port-forward` automatically. See [docs/alert-polling.md](docs/alert-polling.md) for API details, OpenShift RBAC, and manual testing.
 
+## Run as a systemd service
+
+To build, install, and restart as a background service on Linux:
+
+```bash
+./utils/install-kcontext.sh
+```
+
+Re-run the same command after code changes — it rebuilds, overwrites `/usr/local/bin/kcontext`, and restarts the service. See [utils/README.md](utils/README.md) for options, configuration, and `oc` port-forward notes.
+
 ## Documentation
 
 | Doc | Description |
 |-----|-------------|
+| [architecture.md](docs/architecture.md) | How KContext works today — pieces and data flow |
 | [alert-flow.md](docs/alert-flow.md) | Poll vs webhook ingest paths |
 | [webhook-ingest.md](docs/webhook-ingest.md) | Alertmanager webhook receiver and testing |
 | [configuration.md](docs/configuration.md) | Environment variables |
+| [utils/README.md](utils/README.md) | systemd install script and service setup |
 | [endpoints.md](docs/endpoints.md) | HTTP routes |
 | [dashboard.md](docs/dashboard.md) | Dashboard UI, filters, and pagination |
 | [alert-polling.md](docs/alert-polling.md) | Alertmanager poll API, OpenShift RBAC, dedup |
+| [vm-context.md](docs/vm-context.md) | Design: VM alert context (describe VMI + virt-launcher logs) |
 | [alertmanager-api-response.json](docs/alertmanager-api-response.json) | Sample Alertmanager poll response |
 | [test-webhook.sh](docs/test-webhook.sh) | POST a sample alert to `/webhook` |
 | [webhook-payload.json](docs/webhook-payload.json) | JSON body used by `test-webhook.sh` |
